@@ -1,0 +1,9 @@
+# Treat KiCad files as text so diffs are readable
+*.kicad_pcb text diff
+*.kicad_sch text diff
+*.kicad_pro text diff
+*.kicad_sym text diff
+*.kicad_mod text diff
+
+# Normalize line endings across OSes
+* text=auto

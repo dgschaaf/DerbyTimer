@@ -1,0 +1,26 @@
+# Build output (Arduino/PlatformIO/CMake/etc.)
+.pio/
+.build/
+cmake-build-*/
+*.elf
+*.map
+*.hex
+*.bin
+
+# VS Code & IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# KiCad backups/cache (keep source .kicad_* files!)
+*-backups/
+*.kicad_prl
+*.bak
+sym-lib-table-bak
+fp-lib-table-bak
+*.net
+*.xml
