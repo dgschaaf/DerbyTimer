@@ -1,4 +1,5 @@
 #include "display.h"
+#inlucde <Arduino.h>
 
 // Shift register pins – update these to match your wiring.  
 // The data pin feeds serial data into the first 74HC595, 

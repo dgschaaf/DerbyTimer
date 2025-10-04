@@ -1,4 +1,5 @@
 #include "serialComm.h"
+#inlucde <Arduino.h>
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 

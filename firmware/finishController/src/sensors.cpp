@@ -1,4 +1,5 @@
 #include "sensors.h"
+#inlucde <Arduino.h>
 
 // Global configuration.  Adjust leftPin/rightPin for your board.
 const SensorConfig config = {
