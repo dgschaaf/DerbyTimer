@@ -18,6 +18,84 @@
 #include "buttons.h"
 #include "globals.h"
 
+// State machine structure for managing state transitions
+struct StateMachine {
+	raceState current;
+	raceState target;
+	bool entry;
+	bool exit;
+	// Returns true when transition is complete
+	bool transition(raceState newState) {
+		if (target != newState) {
+			target = newState;  // Set intention
+		}
+		if (current != target) {
+			// Try to coordinate transition
+			txStatus result = txRaceState(target);
+			switch (result) {
+				case TX_ACKED:
+					entry = true;           // Enter new state
+					current = target;       // Commit transition
+					exit = true;            // Exit previous state
+					resetTxState(MSG_RACE_STATE);
+					return true;
+				case TX_TIMEOUT:
+				case TX_FAILED:
+					target = current;       // Abandon transition
+					resetTxState(MSG_RACE_STATE);
+					// Log error or flash lights
+					return false;
+				default:
+					return false;  // Still pending
+			}
+		}
+		return true;  // Already in target state
+	}
+	// Handle unsolicited state changes from rxSerial
+	void rxTransition(raceState rxState) {
+		if (rxState != current) {
+			transition(rxState);
+		}
+	}
+};
+
+// Mode machine structure for managing mode transitions
+struct ModeMachine {
+	raceMode current;
+	raceMode target;
+	// Returns true when transition is complete
+	bool transition(raceMode newMode) {
+		if (target != newMode) {
+			target = newMode;  // Set intention
+		}
+		if (current != target) {
+			// Try to coordinate transition
+			txStatus result = txRaceMode(target);
+			switch (result) {
+				case TX_ACKED:
+					current = target;       // Commit transition
+					resetTxState(MSG_RACE_MODE);
+					return true;
+				case TX_TIMEOUT:
+				case TX_FAILED:
+					target = current;       // Abandon transition
+					resetTxState(MSG_RACE_MODE);
+					// Log error or flash lights
+					return false;
+				default:
+					return false;  // Still pending
+			}
+		}
+		return true;  // Already in target mode
+	}
+	// Handle unsolicited mode changes from rxSerial
+	void rxTransition(raceMode rxMode) {
+		if (rxMode != current) {
+			transition(rxMode);
+		}
+	}
+};
+
 // globals.h definitions
 unsigned long leftReactionTime			= 0;			// Reaction time for left track
 unsigned long rightReactionTime			= 0;			// Reaction time for right track
@@ -26,19 +104,16 @@ unsigned long leftStartTime				= 0;			// Log the start time of the left track
 unsigned long rightStartTime			= 0;			// Log the start time of the right track
 bool leftFoul							= false;		// Log foul status of left track
 bool rightFoul							= false;		// Log foul status of right track
-raceState targetState					= RACE_IDLE;	// default target state
-raceState currentState					= RACE_IDLE;	// default current state
-raceMode targetMode						= MODE_GATEDROP;// default target mode
-raceMode currentMode					= MODE_GATEDROP;// default current mode
-
 
 static_assert(UID_LEN == serialUIDLength, "UID Lengths Must Match");
+// State & mode machine instances
+static StateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
+static ModeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
+
 // state & mode transitions
-static bool stateFirstPass				= true;			// marker for first pass of a state
 static unsigned long statusLightTimer	= 0;			// timer used for tracking light status
 static const unsigned long statusLightMax	= 3000;			// timer limit for displaying status
 static bool modeChangeLights			= false;		// mode lights pending
-static bool modeTxPending				= false;		// mode tx pending
 
 // countdown 
 static countdownState cdState			= CD_IDLE;		// current countdownState value - see globals.h
@@ -85,24 +160,26 @@ void setup(){
 	setupGates();
 	setupLights();
 	setupRFID();														// note this returns a bool
+
+	// Initialize state machines
+	stm.current = RACE_IDLE;
+	stm.target  = RACE_IDLE;
+	mdm.current = MODE_GATEDROP;
+	mdm.target  = MODE_GATEDROP;
 }
 
 void loop(){
-	
-	switch(currentState) {
+
+	switch(stm.current) {
 		case RACE_IDLE:
-			if(stateFirstPass){
+			if(stm.entry){
+					stm.entry		= false;
 					cdState = CD_IDLE;
 					updateLights(LIGHT_OFF);
 					dropGate(gateL);										// make sure gate L isn't up
 					dropGate(gateR);										// make sure gate R isn't up
-					targetState		= currentState;							// clear any target state collision
-					targetMode		= currentMode;							// clear any target mode collision
-					rxState			= currentState;							// clear any rxState collision
-					rxMode			= currentMode;							// clear any rxMode collision
 					modeReleased	= true;									// assume button not pressed
 					startReleased	= true;									// assume button not pressed
-					stateFirstPass 	= false;
 				}
 				
 			if (rxSerial()){
@@ -112,13 +189,12 @@ void loop(){
 			if (isModePressed() && modeReleased){
 				modeReleased			= false;							// don't revisit until released
 				// Select mode to advance to per transition order
-				switch (targetMode) {
-					case MODE_GATEDROP: targetMode	= MODE_REACTION;	break;
-					case MODE_REACTION: targetMode	= MODE_PRO;			break;
-					case MODE_PRO:      targetMode	= MODE_DIALIIN;		break;
-					default:            targetMode	= MODE_GATEDROP;	break;
+				switch (mdm.target) {
+					case MODE_GATEDROP: mdm.target	= MODE_REACTION;	break;
+					case MODE_REACTION: mdm.target	= MODE_PRO;			break;
+					case MODE_PRO:      mdm.target	= MODE_DIALIIN;		break;
+					default:            mdm.target	= MODE_GATEDROP;	break;
 				}
-				resetTxState(MSG_RACE_MODE);								// reset TX status incase one is pending
 			}
 			if (!isModePressed())		modeReleased	= true; 			// button released, ready for next detection
 
@@ -128,87 +204,51 @@ void loop(){
 					modeChangeLights 		= false; 					// status update complete
 				}
 			}
-			
-			if(currentMode != targetMode){ 
-				// handle mode tx
-				txStatus m = txRaceMode(targetMode); 					// helper function handles transmission status
-				switch (m) {
-					case TX_ACKED:										
-						currentMode 		= targetMode;				// commit mode change
-						rxMode				= currentMode;				// clear any rxMode collision
-						modeChangeLights	= true;
-						updateLights(lightsForMode(currentMode));		// set lights to show new mode
-						statusLightTimer	= millis();
-						resetTxState(MSG_RACE_MODE);
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						targetMode 			= currentMode;				// abandon mode change
-						resetTxState(MSG_RACE_MODE);					// reset transmit message
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
-			} else{
-				if (currentMode != rxMode) {
-					currentMode 		= rxMode;						// commit mode change
-					targetMode 			= currentMode;					// clear any targetMode collision
-					modeChangeLights	= true;							// mode lights need to be displayed
-					updateLights(lightsForMode(currentMode));			// set lights to show new mode
+
+			// Handle mode transition
+			if(mdm.current != mdm.target){
+				if(mdm.transition(mdm.target)){
+					// Transition succeeded
+					modeChangeLights	= true;
+					updateLights(lightsForMode(mdm.current));			// set lights to show new mode
 					statusLightTimer	= millis();
-					resetTxState(MSG_RACE_MODE);
+				} else {
+					// Transition failed or pending
+					// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
 				}
 			}
-		
+
+			// Handle unsolicited mode changes from rxSerial
+			if (mdm.current != rxMode) {
+				mdm.rxTransition(rxMode);
+				if(mdm.current == rxMode){
+					modeChangeLights	= true;							// mode lights need to be displayed
+					updateLights(lightsForMode(mdm.current));			// set lights to show new mode
+					statusLightTimer	= millis();
+				}
+			}
+
 			// When user presses the start button it should trigger a state transition
-			if (currentState == targetState){
-				// only check the button if we aren't already processing a state change
-				if (isStartPressed()){
-					targetState 			= RACE_STAGING;
-				}
-				if (rxState == RACE_TEST){
-					currentState = rxState;								// allow transition to test remotely
-					targetState = currentState;							// clear any pending target state transition
-				}
-			} else {
-				txStatus s = txRaceState(targetState); 					// helper function handles transmission status
-				switch (s) {
-					case TX_ACKED:										
-						currentState 		= targetState;				// commit state change
-						resetTxState(MSG_RACE_STATE);
-						stateFirstPass 		= true;						// reset first pass marker
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						targetState			= currentState;				// abandon state transition
-						resetTxState(MSG_RACE_STATE);					// reset transmit message
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
-			}						
+			if (isStartPressed()){
+				stm.transition(RACE_STAGING);
+			}
+
+			// Handle unsolicited state changes from rxSerial
+			stm.rxTransition(rxState);
+
+			if(stm.exit){
+				stm.exit = false;
+			}
 			break;
 			
 		case RACE_STAGING:
-			if(stateFirstPass){
+			if(stm.entry){
+				stm.entry			= false;
 				returnGates(); 										// reset the gate status to park the cars
 				updateLights(LIGHT_BL | LIGHT_BR); 					// set the lights to blue
 				memset(leftCarID, 0, UID_LEN);						// clear rx for left ID
 				memset(rightCarID, 0, UID_LEN);						// clear rx for right ID
-				targetState			= currentState;					// clear any target state collision
-				rxState				= currentState;					// clear any rxState collision
 				blinkState.active 	= false;  						// Clear any pending blinks
-				stateFirstPass 		= false;
 			}
 			if(gateStatus.returnActive)	returnGates();				// call this until it returnActive is false
 			
@@ -290,46 +330,25 @@ void loop(){
 			}
 
 			updateBlink();
-			if (currentState == targetState && !blinkState.active){		
-				if (isStartPressed()){									// only check the button if we aren't already processing a state change
-					targetState 			= RACE_COUNTDOWN;			// handle a managed transition to countdown state
+			if (!blinkState.active){
+				if (isStartPressed()){
+					stm.transition(RACE_COUNTDOWN);
 				}
 				if (isModePressed()){
-					targetState 			= RACE_IDLE;				// handle a managed transition back to idle state
+					stm.transition(RACE_IDLE);
 				}
-				
-			} else {
-				txStatus s = txRaceState(targetState); 					// helper function handles transmission status
-				switch (s) {
-					case TX_ACKED:										
-						currentState 		= targetState;				// commit state change
-						resetTxState(MSG_RACE_STATE);
-						stateFirstPass 		= true;						// reset first pass marker
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						targetState			= currentState;				// abandon state transition
-						resetTxState(MSG_RACE_STATE);					// reset transmit message
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
+			}
+
+			if(stm.exit){
+				stm.exit = false;
 			}
 			break;
 			
-		case RACE_COUNTDOWN:	
-			if(stateFirstPass){
-				// first pass only actions here
+		case RACE_COUNTDOWN:
+			if(stm.entry){
+				stm.entry				= false;
 				cdState 				= CD_STAGED;
 				prevCdState 			= cdState;
-				targetState				= currentState;							// clear any target state collision
-				rxState					= currentState;							// clear any rxState collision
-				stateFirstPass 			= false;	
 			}
 			
 			if(rxSerial()){
@@ -338,10 +357,10 @@ void loop(){
 			
 			// Tick the countdown state.  This function will handle managing stage delays
 			// as well as managing the countdown state
-			cdState = tickCountdownState(currentMode, cdState);
-			
+			cdState = tickCountdownState(mdm.current, cdState);
+
 			// Watch for the triggers (given right mode).  Drop the gate but store a foul.
-			if (currentMode != MODE_GATEDROP){
+			if (mdm.current != MODE_GATEDROP){
 				if (isLeftPressed() && gateStatus.leftUp){
 					leftStartTime 		= micros();
 					leftFoul 			= true;
@@ -353,16 +372,15 @@ void loop(){
 					dropGate(gateR);
 				}
 			}
-			
+
 			if (cdState != prevCdState){
 				if (cdState == CD_GO){
-					targetState 		= RACE_RACING;					// when GO has been hit in countdown, trigger a state transition
-					resetTxState(MSG_RACE_STATE);
+					stm.transition(RACE_RACING);						// when GO has been hit in countdown, trigger a state transition
 					raceStartTime		= micros();						// when GO has been hit in countdown, tell finishController race is started
 					pendStartTx			= true;
 					resetTxState(MSG_RACE_START);
-					
-					if (currentMode == MODE_GATEDROP){
+
+					if (mdm.current == MODE_GATEDROP){
 						// The gate drop mode everyone starts at the same time
 						leftStartTime 	= raceStartTime;
 						rightStartTime 	= raceStartTime;
@@ -370,8 +388,8 @@ void loop(){
 						dropGate(gateR);
 					}
 				}
-				
-				byte cdLights	= buildLightConfig(cdState, leftFoul, rightFoul, currentMode);	// set new light pattern
+
+				byte cdLights	= buildLightConfig(cdState, leftFoul, rightFoul, mdm.current);	// set new light pattern
 				updateLights(cdLights);									// update lights only when new cdState
 				prevCdState = cdState;
 			}
@@ -398,34 +416,15 @@ void loop(){
 						break;
 				}
 			}
-			
-			if (currentState != targetState){
-				txStatus s = txRaceState(targetState); 					// helper function handles transmission status
-				switch (s) {
-					case TX_ACKED:										
-						currentState 		= targetState;				// commit state change
-						resetTxState(MSG_RACE_STATE);
-						stateFirstPass 		= true;						// reset first pass marker
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						targetState			= currentState;				// abandon state transition
-						resetTxState(MSG_RACE_STATE);					// reset transmit message
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
+
+			if(stm.exit){
+				stm.exit = false;
 			}
 			break;
 			
 		case RACE_RACING:
-			if(stateFirstPass){
-				// first pass only actions here
+			if(stm.entry){
+				stm.entry						= false;
 				leftReactionTime				= 0;							// reset reaction time
 				rightReactionTime				= 0;							// reset reaction time
 				unsigned long raceTimeOffset	= startDelay - raceStartTime;	// not currently used but could compensate for line delays
@@ -433,26 +432,17 @@ void loop(){
 				uint8_t foulMask				= 0;
 				if (leftFoul)  foulMask		   |= foul_left;					// add left foul status to mask
 				if (rightFoul) foulMask		   |= foul_right;					// add right foul stats to mask
-				targetState		= currentState;									// clear any target state collision
-				rxState			= currentState;									// clear any rxState collision
 				resetTxState(MSG_RACE_START);
 				resetTxState(MSG_FOUL);
 				resetTxState(MSG_LEFT_REACT);
 				resetTxState(MSG_RIGHT_REACT);
-				stateFirstPass 					= false;
 			}
 			
 			if(rxSerial()){
-				// wait for the race complete state transiiton rx
-				if(rxID == MSG_RACE_STATE){
-					if (rxState != RACE_COMPLETE){
-						// future - send error: bad state transition request
-						targetState		= currentState;					// clear state transition
-					}
-				}
+				// wait for the race complete state transition rx
 			}
-			
-			if (currentMode != MODE_GATEDROP){
+
+			if (mdm.current != MODE_GATEDROP){
 				// Watch for the triggers (given correct mode).
 				if (isLeftPressed() && gateStatus.leftUp){
 					leftStartTime 			= micros();
@@ -548,36 +538,31 @@ void loop(){
 					}
 				}
 			}
-			
+
 			if (!foulStatusPending && !reactLeftPending && !reactRightPending){
-				// wait until all pending message have been sent until completing transition
-				currentState 				= rxState;			// commit state transition
+				// wait until all pending messages have been sent until completing transition
+				stm.rxTransition(rxState);
+			}
+
+			if(stm.exit){
+				stm.exit = false;
 			}
 			break;
 			
 		case RACE_COMPLETE:
-			if(stateFirstPass){
-				// first pass only actions here
-				stateFirstPass 			= false;
+			if(stm.entry){
+				stm.entry				= false;
 				rxLeftWin				= false;
 				rxRightWin				= false;
 				rxTie					= false;
 				winLightsPend			= false;
 				blinkState.active 		= false;  						// Clear any pending blinks
-				targetState		= currentState;							// clear any target state collision
-				rxState			= currentState;							// clear any rxState collision
 			}
 			
 			if(rxSerial()){
 				// message-specific actions
 				if(rxID == MSG_WINNER){
-					winLightsPend			= true;						// set the winner lights to display	
-				}
-				if(rxID == MSG_RACE_STATE){
-					if (targetState != RACE_IDLE){
-						// future - send error: bad state transition request
-						targetState		= currentState;					// clear state transition
-					}
+					winLightsPend			= true;						// set the winner lights to display
 				}
 			}
 			
@@ -615,15 +600,28 @@ void loop(){
 					}
 				}
 				
-				if (!winLightsPend && !updateBlink()){				// note: this also executes teh updateBlink() function to process blinks
-				// wait until all pending message have been sent until completing transition
-				currentState 				= rxState;				// commit state transition
-			}			
+			if (!winLightsPend && !updateBlink()){				// note: this also executes the updateBlink() function to process blinks
+				// wait until all pending messages have been sent until completing transition
+				stm.rxTransition(rxState);
+			}
+
+			if(stm.exit){
+				stm.exit = false;
+			}
 			break;
 			
 		case RACE_TEST:  // not currently implemented, return to idle
+			if(stm.entry){
+				stm.transition(RACE_IDLE);
+				stm.entry = false;
+			}
+			if(stm.exit){
+				stm.exit = false;
+			}
+			break;
+
 		default:
-			currentState = RACE_IDLE;
+			stm.current = RACE_IDLE;
 			break;
 	}
 }
