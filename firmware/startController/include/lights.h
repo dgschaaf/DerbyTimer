@@ -35,5 +35,4 @@ byte buildLightConfig(countdownState state, bool FL, bool FR, raceMode mode);
 void lightTestPattern();
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern);
 bool updateBlink();
-
 #endif

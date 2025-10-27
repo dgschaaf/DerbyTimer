@@ -2,12 +2,13 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-static static byte RST_PIN 			= 8;
-static static byte CS_PIN_L 		= 10;
-static static byte CS_PIN_R 		= 9;
-static unsigned long rfidThresh		= 500;			// RFID read thresold, once ever 0.5 seconds
-static uint8_t leftCarID[UID_LEN]	= 0;			// left ID
-static uint8_t rightCarID[UID_LEN]	= 0;			// right ID
+static byte RST_PIN 				= 8;
+static byte CS_PIN_L 				= 10;
+static byte CS_PIN_R 				= 9;
+unsigned long rfidThresh			= 500;			// RFID read thresold, once ever 0.5 seconds
+
+uint8_t leftCarID[UID_LEN]			= 0;			// left ID
+uint8_t rightCarID[UID_LEN]			= 0;			// right ID
 
 RFIDReader leftReader(CS_PIN_L, RST_PIN);
 RFIDReader rightReader(CS_PIN_R, RST_PIN);

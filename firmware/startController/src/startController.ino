@@ -10,7 +10,7 @@
  *   - SPI (built-in)
  */
 
-
+#include <Arduino.h>
 #include "lights.h"
 #include "gates.h"
 #include "rfid.h"
@@ -26,30 +26,33 @@ struct StateMachine {
 	bool exit;
 	// Returns true when transition is complete
 	bool transition(raceState newState) {
+		if (!isValidStateTransition(newState)){
+			return false;					// Invalid transition
+		}
 		if (target != newState) {
-			target = newState;  // Set intention
+			target = newState;				// Set intention
 		}
 		if (current != target) {
 			// Try to coordinate transition
 			txStatus result = txRaceState(target);
 			switch (result) {
 				case TX_ACKED:
-					entry = true;           // Enter new state
-					current = target;       // Commit transition
-					exit = true;            // Exit previous state
+					entry = true;			// Enter new state
+					current = target;		// Commit transition
+					exit = true;			// Exit previous state
 					resetTxState(MSG_RACE_STATE);
 					return true;
 				case TX_TIMEOUT:
 				case TX_FAILED:
-					target = current;       // Abandon transition
+					target = current;		// Abandon transition
 					resetTxState(MSG_RACE_STATE);
 					// Log error or flash lights
 					return false;
 				default:
-					return false;  // Still pending
+					return false;			// Still pending
 			}
 		}
-		return true;  // Already in target state
+		return false;						// Already in target state
 	}
 	// Handle unsolicited state changes from rxSerial
 	void rxTransition(raceState rxState) {
@@ -57,44 +60,67 @@ struct StateMachine {
 			transition(rxState);
 		}
 	}
+	// Add state validation
+	bool isValidStateTransition(raceState to) {
+		switch(current) {
+        	case RACE_IDLE:			return (to == RACE_STAGING 		|| to == RACE_TEST);
+        	case RACE_STAGING:		return (to == RACE_COUNTDOWN	|| to == RACE_IDLE);
+        	case RACE_COUNTDOWN:	return (to == RACE_RACING);
+        	case RACE_RACING:		return (to == RACE_COMPLETE);
+        	case RACE_COMPLETE:		return (to == RACE_IDLE);
+			case RACE_TEST:			return (to == RACE_IDLE);
+        	default:				return false;
+    	}
+	}
 };
 
 // Mode machine structure for managing mode transitions
 struct ModeMachine {
 	raceMode current;
 	raceMode target;
-	// Returns true when transition is complete
 	bool transition(raceMode newMode) {
+		// Returns true when transition is complete
 		if (target != newMode) {
-			target = newMode;  // Set intention
+			target = newMode;					// Set intention
 		}
 		if (current != target) {
 			// Try to coordinate transition
 			txStatus result = txRaceMode(target);
 			switch (result) {
 				case TX_ACKED:
-					current = target;       // Commit transition
+					current = target;			// Commit transition
 					resetTxState(MSG_RACE_MODE);
 					return true;
 				case TX_TIMEOUT:
 				case TX_FAILED:
-					target = current;       // Abandon transition
+					target = current;			// Abandon transition
 					resetTxState(MSG_RACE_MODE);
 					// Log error or flash lights
 					return false;
 				default:
-					return false;  // Still pending
+					return false;				// Still pending
 			}
 		}
-		return true;  // Already in target mode
+		return false;							// Already in target mode
 	}
-	// Handle unsolicited mode changes from rxSerial
-	void rxTransition(raceMode rxMode) {
-		if (rxMode != current) {
-			transition(rxMode);
+	void nextMode() {
+		// Determine next mode in sequence for button press
+		switch(current) {
+			case MODE_GATEDROP:	target	= MODE_REACTION;	break;
+			case MODE_REACTION:	target	= MODE_PRO;			break;
+			case MODE_PRO:		target	= MODE_GATEDROP; 	break; // DIALIN not yet defined, will be next = MODE_DIALIIN;
+			case MODE_DIALIIN:	target	= MODE_GATEDROP;	break;
+			default: 			target	= MODE_GATEDROP;	break;
+		}
+	}
+	void rxTransition(raceMode serialTgt) {
+		if (serialTgt != current) {									// Unsolicited mode change from serial
+			transition(serialTgt);
 		}
 	}
 };
+
+
 
 // globals.h definitions
 unsigned long leftReactionTime			= 0;			// Reaction time for left track
@@ -106,14 +132,10 @@ bool leftFoul							= false;		// Log foul status of left track
 bool rightFoul							= false;		// Log foul status of right track
 
 static_assert(UID_LEN == serialUIDLength, "UID Lengths Must Match");
+
 // State & mode machine instances
 static StateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
 static ModeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
-
-// state & mode transitions
-static unsigned long statusLightTimer	= 0;			// timer used for tracking light status
-static const unsigned long statusLightMax	= 3000;			// timer limit for displaying status
-static bool modeChangeLights			= false;		// mode lights pending
 
 // countdown 
 static countdownState cdState			= CD_IDLE;		// current countdownState value - see globals.h
@@ -126,7 +148,7 @@ static bool pendStartTx					= false;		// marker for if start transmission is pen
 static bool reactLeftPending			= false;		// marker for if left reaction tx is pending
 static bool reactRightPending			= false;		// marker for if right reaction tx is pending
 static bool foulStatusPending			= false;		// marker for if foul status tx is pending
-static unsigned long startDelay				= 0;			// Unused, delay between start and ACK
+static unsigned long startDelay			= 0;			// Unused, delay between start and ACK
 
 // rfid
 RFIDResult rfidLStat;									// result from left reader
@@ -143,15 +165,51 @@ static bool startReleased				= true;
 static bool modeReleased				= true;
 
 
-// Helper to map mode -> lights
-static inline uint8_t lightsForMode(raceMode m) {
-  switch (m) {
-    case MODE_GATEDROP: return LIGHT_Y1;
-    case MODE_REACTION: return LIGHT_Y2;
-    case MODE_PRO:      return LIGHT_Y3;
-    case MODE_DIALIIN:  /* fall-through */
-    default:            return LIGHT_GO;
-  }
+// Helper function to manage countdown timing based on race mode
+countdownState tickCountdownState(raceMode mode, countdownState cdState){
+	unsigned long currentTime = millis();
+	switch (cdState) {
+		case CD_STAGED:
+			if (mode == MODE_PRO){
+				stageDelay = 400;
+				cdState = CD_Y1;
+			} else {
+				stageDelay = 500;
+				cdState = CD_Y3;
+			}
+			cdTimer = currentTime;
+			break;
+		case CD_Y3:
+			if (currentTime - cdTimer >= stageDelay){
+				cdState = CD_Y2;
+				cdTimer = currentTime;
+			}
+			break;
+		case CD_Y2:
+			if (currentTime - cdTimer >= stageDelay){
+				cdState = CD_Y1;
+				cdTimer = currentTime;
+			}
+			break;
+		case CD_Y1:
+			if (currentTime - cdTimer >= stageDelay){
+				cdState = CD_GO;
+				cdTimer = currentTime;
+			}
+			break;
+		default:
+			break;
+	}
+	return cdState;	
+}
+
+// Helper function to calculate elapsed microseconds with overflow protection
+unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
+    if (endTime >= startTime) {
+        return endTime - startTime;  					// Normal case
+    } else {
+        return (0xFFFFFFFF - startTime) + endTime + 1;	// Overflow case
+    }
 }
 
 void setup(){
@@ -160,82 +218,54 @@ void setup(){
 	setupGates();
 	setupLights();
 	setupRFID();														// note this returns a bool
-
-	// Initialize state machines
-	stm.current = RACE_IDLE;
-	stm.target  = RACE_IDLE;
-	mdm.current = MODE_GATEDROP;
-	mdm.target  = MODE_GATEDROP;
 }
 
-void loop(){
 
+void loop(){
+	rxSerial();
 	switch(stm.current) {
 		case RACE_IDLE:
 			if(stm.entry){
-					stm.entry		= false;
-					cdState = CD_IDLE;
-					updateLights(LIGHT_OFF);
-					dropGate(gateL);										// make sure gate L isn't up
-					dropGate(gateR);										// make sure gate R isn't up
-					modeReleased	= true;									// assume button not pressed
-					startReleased	= true;									// assume button not pressed
-				}
-				
-			if (rxSerial()){
-				// Future: add other message-specific actions
+				stm.entry		= false;
+				cdState = CD_IDLE;
+				updateLights(LIGHT_OFF);
+				dropGate(gateL);										// make sure gate L isn't up
+				dropGate(gateR);										// make sure gate R isn't up
+				modeReleased	= true;									// assume button not pressed
+				startReleased	= true;									// assume button not pressed
 			}
 			
-			if (isModePressed() && modeReleased){
-				modeReleased			= false;							// don't revisit until released
-				// Select mode to advance to per transition order
-				switch (mdm.target) {
-					case MODE_GATEDROP: mdm.target	= MODE_REACTION;	break;
-					case MODE_REACTION: mdm.target	= MODE_PRO;			break;
-					case MODE_PRO:      mdm.target	= MODE_DIALIIN;		break;
-					default:            mdm.target	= MODE_GATEDROP;	break;
+			// Handle mode changes via button press or rxSerial
+			if (!blinkState.active){
+				if (isModePressed() && modeReleased){
+					modeReleased			= false;						// don't revisit until released
+					mdm.nextMode();											// Select mode to advance to per transition order
+				}
+				if (!isModePressed())		modeReleased	= true; 		// button released, ready for next detection
+				mdm.rxTransition(rxMode);									// Handle unsolicited mode changes from rxSerial
+				if (mdm.transition(mdm.target)){
+					uint8_t pattern;
+					switch (mdm.target){
+						case MODE_GATEDROP: pattern = LIGHT_Y1; break;
+						case MODE_REACTION: pattern = LIGHT_Y2; break;
+						case MODE_PRO:      pattern = LIGHT_Y3; break;
+						case MODE_DIALIIN:  /* fall-through */
+						default:            pattern = LIGHT_GO; break;
+					}
+					startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);			// blink new mode pattern 3x
+					rxMode				= mdm.current;						// update Serial target to match
 				}
 			}
-			if (!isModePressed())		modeReleased	= true; 			// button released, ready for next detection
+			updateBlink();
 
-			if (modeChangeLights){
-				if(millis() - statusLightTimer > statusLightMax){
-					updateLights(LIGHT_OFF);							// turn off mode status lights
-					modeChangeLights 		= false; 					// status update complete
+			// Handle state changes via button press or rxSerial
+			if (!blinkState.active){
+				if (isStartPressed())	stm.target =RACE_STAGING;			// Start moves to STAGING
+				stm.rxTransition(rxState);									// Handle unsolicited state changes from rxSerial
+				if (stm.transition(stm.target)){
+					rxState = stm.current;									// update Serial target to match
 				}
 			}
-
-			// Handle mode transition
-			if(mdm.current != mdm.target){
-				if(mdm.transition(mdm.target)){
-					// Transition succeeded
-					modeChangeLights	= true;
-					updateLights(lightsForMode(mdm.current));			// set lights to show new mode
-					statusLightTimer	= millis();
-				} else {
-					// Transition failed or pending
-					// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-				}
-			}
-
-			// Handle unsolicited mode changes from rxSerial
-			if (mdm.current != rxMode) {
-				mdm.rxTransition(rxMode);
-				if(mdm.current == rxMode){
-					modeChangeLights	= true;							// mode lights need to be displayed
-					updateLights(lightsForMode(mdm.current));			// set lights to show new mode
-					statusLightTimer	= millis();
-				}
-			}
-
-			// When user presses the start button it should trigger a state transition
-			if (isStartPressed()){
-				stm.transition(RACE_STAGING);
-			}
-
-			// Handle unsolicited state changes from rxSerial
-			stm.rxTransition(rxState);
-
 			if(stm.exit){
 				stm.exit = false;
 			}
@@ -251,34 +281,29 @@ void loop(){
 				blinkState.active 	= false;  						// Clear any pending blinks
 			}
 			if(gateStatus.returnActive)	returnGates();				// call this until it returnActive is false
-			
-			if(rxSerial()){
-				if(rxID == MSG_LEFT_CAR_ID){
-					if(memcmp(rxLeftID, leftCarID, UID_LEN)==0) {	// check if rx ID matches onboard
-						startBlink(LIGHT_BL | LIGHT_BR, LIGHT_BR, 3, 250, LIGHT_BL | LIGHT_BR);	// blink LIGHT_BL 3x
-					} else {
-						// blink LIGHT_FL 3x? lightsLeftCarMismatch();
-					}
-				}
-				if(rxID == MSG_RIGHT_CAR_ID){
-					if(memcmp(rxRightID, rightCarID, UID_LEN)==0) {	// check if rx ID matches onboard
-						startBlink(LIGHT_BL | LIGHT_BR, LIGHT_BL, 3, 250, LIGHT_BL | LIGHT_BR);	// blink LIGHT_BR 3x
-					} else {
-						// blink LIGHT_FR 3x? lightsRightCarMismatch();
-					}
-				}
+
+			if(rxID == MSG_LEFT_CAR_ID){
+    			if(memcmp(rxLeftID, leftCarID, UID_LEN)==0) {
+        			startBlink(LIGHT_BL | LIGHT_BR, LIGHT_BR, 3, 250, LIGHT_BL | LIGHT_BR);	// Match - blink blue 
+    			} else if(memcmp(rxLeftID, "\0\0\0\0", UID_LEN) != 0) {
+        			startBlink(LIGHT_BL, LIGHT_FL, 3, 250, LIGHT_BL | LIGHT_BR);			// Non-zero mismatch - manager says wrong car, blink red+blue
+    			}
+    			// If rxLeftID is all zeros, manager didn't recognize - no action needed
 			}
-			
-			if (blinkState.active) {
-				updateBlink();
+			if(rxID == MSG_RIGHT_CAR_ID){
+    			if(memcmp(rxRightID, leftCarID, UID_LEN)==0) {
+        			startBlink(LIGHT_BL | LIGHT_BR, LIGHT_BR, 3, 250, LIGHT_BL | LIGHT_BR);	// Match - blink blue 
+    			} else if(memcmp(rxRightID, "\0\0\0\0", UID_LEN) != 0) {
+        			startBlink(LIGHT_BR, LIGHT_FR, 3, 250, LIGHT_BL | LIGHT_BR);			// Non-zero mismatch - manager says wrong car, blink red+blue
+    			}
+    			// If rxRightID is all zeros, manager didn't recognize - no action needed
 			}
-			
+
 			rfidLStat = leftReader.readTag(rfidThresh);				// poll the left RFID reader
 			if(rfidLStat == RFID_NEW){
 				memcpy(leftCarID, leftReader.uid, UID_LEN);
 				txLID 				= true;
 			}
-			
 			if(txLID){
 				txStatus lid = txCarID(leftCarID, true); 				// helper function handles transmission status
 				switch (lid) {
@@ -300,13 +325,11 @@ void loop(){
 						break;
 				}
 			}
-			
 			rfidRStat = rightReader.readTag(rfidThresh);			// poll the right RFID reader	
 			if (rfidRStat == RFID_NEW){
 				memcpy(rightCarID, rightReader.uid, UID_LEN);
 				txRID 				= true;
 			}
-			
 			if(txRID){
 				txStatus rid = txCarID(rightCarID, true); 				// helper function handles transmission status
 				switch (rid) {
@@ -328,17 +351,16 @@ void loop(){
 						break;
 				}
 			}
-
 			updateBlink();
-			if (!blinkState.active){
-				if (isStartPressed()){
-					stm.transition(RACE_COUNTDOWN);
-				}
-				if (isModePressed()){
-					stm.transition(RACE_IDLE);
-				}
-			}
 
+			// Handle state changes via button press
+			if (!blinkState.active){
+				if (isStartPressed())	stm.target =RACE_COUNTDOWN;			// Start moves to COUNTDOWN
+				if (isModePressed())	stm.target = RACE_IDLE;				// Mode returns to IDLE
+			}
+			if (stm.transition(stm.target)){
+				rxState = stm.current;									// update Serial target to match
+			}
 			if(stm.exit){
 				stm.exit = false;
 			}
@@ -349,10 +371,6 @@ void loop(){
 				stm.entry				= false;
 				cdState 				= CD_STAGED;
 				prevCdState 			= cdState;
-			}
-			
-			if(rxSerial()){
-				// message specific actions here
 			}
 			
 			// Tick the countdown state.  This function will handle managing stage delays
@@ -624,63 +642,4 @@ void loop(){
 			stm.current = RACE_IDLE;
 			break;
 	}
-}
-
-// Helper function to manage countdown timing based on race mode
-countdownState tickCountdownState(raceMode mode, countdownState cdState){
-	unsigned long currentTime = millis();
-	switch (cdState) {
-		case CD_STAGED:
-			if (mode == MODE_PRO){
-				stageDelay = 400;
-				cdState = CD_Y1;
-			} else {
-				stageDelay = 500;
-				cdState = CD_Y3;
-			}
-			cdTimer = currentTime;
-			break;
-		case CD_Y3:
-			if (currentTime - cdTimer >= stageDelay){
-				cdState = CD_Y2;
-				cdTimer = currentTime;
-			}
-			break;
-		case CD_Y2:
-			if (currentTime - cdTimer >= stageDelay){
-				cdState = CD_Y1;
-				cdTimer = currentTime;
-			}
-			break;
-		case CD_Y1:
-			if (currentTime - cdTimer >= stageDelay){
-				cdState = CD_GO;
-				cdTimer = currentTime;
-			}
-			break;
-		default:
-			break;
-	}
-	return cdState;	
-}
-
-// Helper function to calculate elapsed microseconds with overflow protection
-unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
-    if (endTime >= startTime) {
-        return endTime - startTime;  					// Normal case
-    } else {
-        return (0xFFFFFFFF - startTime) + endTime + 1;	// Overflow case
-    }
-}
-
-// Add state validation
-bool isValidStateTransition(raceState from, raceState to) {
-    switch(from) {
-        case RACE_IDLE:     return (to == RACE_STAGING || to == RACE_TEST);
-        case RACE_STAGING:  return (to == RACE_COUNTDOWN || to == RACE_IDLE);
-        case RACE_COUNTDOWN:return (to == RACE_RACING || to == RACE_IDLE);
-        case RACE_RACING:   return (to == RACE_COMPLETE);
-        case RACE_COMPLETE: return (to == RACE_IDLE);
-        default: return false;
-    }
 }

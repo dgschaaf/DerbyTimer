@@ -9,6 +9,10 @@ struct gateStatusInfo {
 	uint16_t waitTime;
 };
 
+extern byte gateL;
+extern byte gateR;
+extern byte gateReturn;
+
 extern gateStatusInfo gateStatus;
 
 void setupGates();

@@ -7,7 +7,7 @@
 
 bool setupRFID();
 
-enum RFIDResult uint8_t {
+enum RFIDResult: uint8_t {
 	RFID_OK,
 	RFID_INVALID,
 	RFID_COMM_ERR,
@@ -37,7 +37,7 @@ extern uint8_t rightCarID[UID_LEN];			// rx for right ID
 extern RFIDReader leftReader;
 extern RFIDReader rightReader;
 
-extern uint8_t uidLength;
+//extern uint8_t uidLength; - unneeded, set in the RFIDReader struct
 extern unsigned long rfidThresh;
 
 #endif

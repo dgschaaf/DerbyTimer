@@ -15,8 +15,8 @@ enum serialMsgID : uint8_t {
     MSG_ERROR, 			// any error states
 	MSG_LEFT_REACT, 	// reaction time and foul status
 	MSG_RIGHT_REACT, 	// reaction time and foul status
-	MSG_LEFT_RESULT		// Race time, reaction time, foul status
-	MSG_RIGHT_RESULT	// Race time, reaction time, foul status
+	MSG_LEFT_RESULT,		// Race time, reaction time, foul status
+	MSG_RIGHT_RESULT,	// Race time, reaction time, foul status
 	MSG_FOUL,			// foul status of left and right
 	MSG_WINNER, 		// did L or R win for flashing tree lights
 	MSG_DISP_ADVANCE 	// start is pressed, move to reaction display

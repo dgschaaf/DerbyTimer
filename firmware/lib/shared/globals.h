@@ -41,7 +41,6 @@ enum raceMode uint8_t {
 	MODE_PRO,
 	MODE_DIALIIN 
 	};
-};
 
 // **************** Global Race Variables ****************
 extern unsigned long leftReactionTime;		// Reaction time for left track
@@ -52,13 +51,5 @@ extern unsigned long leftStartTime;			// Log the start time of the left track
 extern unsigned long rightStartTime;		// Log the start time of the right track
 
 extern bool leftFoul;						// Log foul status of left track
-extern bool rightFoul;						// Log foul status of right track
-
-extern raceState targetState;				// pending raceState value
-extern raceState currentState;				// current raceState value
-
-extern raceMode targetMode;					// pending raceMode value
-extern raceMode currentMode;				// current raceMode value
-
-	
+extern bool rightFoul;						// Log foul status of right track	
 #endif

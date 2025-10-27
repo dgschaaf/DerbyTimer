@@ -1,9 +1,9 @@
 #include "gates.h"
 
 // Gate pins
-static const byte gateL 		= 4;
-static const byte gateR 		= 7;
-static const byte gateReturn	= 6;
+const byte gateL 		= 4;
+const byte gateR 		= 7;
+const byte gateReturn	= 6;
 
 gateStatusInfo gateStatus	= {false, false, false, 0, 500};	// initialize with 500 ms wait time
 
