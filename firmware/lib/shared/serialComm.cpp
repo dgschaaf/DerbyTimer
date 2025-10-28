@@ -1,5 +1,5 @@
 #include "serialComm.h"
-#inlucde <Arduino.h>
+#include <Arduino.h>
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 
@@ -41,7 +41,7 @@ bool rxSerial() {
 		case MSG_RACE_MODE: {
 			if (Serial.available() >= 1) {
 				uint8_t newMode = Serial.read();
-				raceMode rxMode = newMode;  // Update your race mode
+				rxMode = newMode;  // Update your race mode
 				txAck(rxID);
 			}
 			break;
@@ -49,7 +49,7 @@ bool rxSerial() {
 		case MSG_RACE_STATE: {
 			if (Serial.available() >= 1) {
 				uint8_t newState = Serial.read();
-				raceState rxState = newState;  // Update your global state
+				rxState = newState;  // Update your global state
 				txAck(rxID);
 			}
 			break;
@@ -60,9 +60,9 @@ bool rxSerial() {
 				uint8_t uid[serialUIDLength];
 				Serial.readBytes(uid, serialUIDLength);
 				if (rxID == MSG_LEFT_CAR_ID) {
-					memcpy(uint8_t rxLeftID, uid, serialUIDLength);  // leftCarID must be uint8_t[4]
+					memcpy(rxLeftID, uid, serialUIDLength);  // leftCarID must be uint8_t[4]
 				} else {
-					memcpy(uint8_t rxRightID, uid, serialUIDLength);
+					memcpy(rxRightID, uid, serialUIDLength);
 				}
 				txAck(rxID);
 			}
@@ -71,9 +71,9 @@ bool rxSerial() {
 		case MSG_RACE_START: {
 			if (Serial.available() >= 1) {
 				uint8_t startMask 	= Serial.read();
-				bool rxRaceStart 	= startMask & 0b0001;
-				bool rxLeftStart	= startMask & 0b0010;
-				bool rxRightStart	= startMask & 0b0100;
+				rxRaceStart 	= startMask & 0b0001;
+				rxLeftStart	= startMask & 0b0010;
+				rxRightStart	= startMask & 0b0100;
 				txAck(rxID);
 			}
 			break;
@@ -84,9 +84,9 @@ bool rxSerial() {
 				int32_t reaction;
 				Serial.readBytes((uint8_t*)&reaction, sizeof(reaction));
 				if (rxID == MSG_LEFT_REACT) {
-					bool rxLeftReactionTime 	= reaction;
+					rxLeftReactionTime 	= reaction;
 				} else {
-					bool rxRightReactionTime 	= reaction;
+					rxRightReactionTime 	= reaction;
 				}
 				txAck(rxID);
 			}
@@ -95,8 +95,8 @@ bool rxSerial() {
 		case MSG_FOUL: {
 			if (Serial.available() >= 1) {
 				uint8_t foulMask 	= Serial.read(); // Bit 0 = L, Bit 1 = R
-				bool rxLeftFoul  	= foulMask & 0b0001;
-				bool rxRightFoul 	= foulMask & 0b0010;
+				rxLeftFoul  	= foulMask & 0b0001;
+				rxRightFoul 	= foulMask & 0b0010;
 				txAck(rxID);
 			}
 			break;
@@ -104,15 +104,15 @@ bool rxSerial() {
 		case MSG_WINNER: {
 			if (Serial.available() >= 1) {
 				uint8_t winnerMask	= Serial.read();
-				bool rxLeftWin 		= winnerMask & 0b0001;
-				bool rxRightWin 	= winnerMask & 0b0010;
-				bool rxTie 			= winnerMask & 0b0100;
+				rxLeftWin 		= winnerMask & 0b0001;
+				rxRightWin 	= winnerMask & 0b0010;
+				rxTie 			= winnerMask & 0b0100;
 				txAck(rxID);
 			}
 			break;
 		}
 		case MSG_DISP_ADVANCE: {
-			bool rxDisplayAdvanceFlag	= true;  // Flag your logic uses elsewhere
+			rxDisplayAdvanceFlag	= true;  // Flag your logic uses elsewhere
 			txAck(rxID);
 			break;
 		}
@@ -136,7 +136,7 @@ bool rxSerial() {
 		}
 		case MSG_ERROR: {
 			if (Serial.available() >= 1) {
-				lastErrorCode = (errCode)Serial.read(); // error code for logging
+				errCode lastErrorCode = (errCode)Serial.read(); // error code for logging
 			}
 			break;
 		}

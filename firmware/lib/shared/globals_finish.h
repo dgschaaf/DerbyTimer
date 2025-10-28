@@ -19,9 +19,7 @@ enum raceMode uint8_t {
 	MODE_REACTION,
 	MODE_PRO,
 	MODE_DIALIIN 
-	};
-};
-	
+	};	
 
 // **************** Global Race Variables ****************
 extern unsigned long leftReactionTime;	// Reaction time for left lane (us)

@@ -1,5 +1,5 @@
 #include "display.h"
-#inlucde <Arduino.h>
+#include <Arduino.h>
 
 // Shift register pins – update these to match your wiring.  
 // The data pin feeds serial data into the first 74HC595, 
@@ -8,14 +8,6 @@
 static const uint8_t SHIFT_DATA_PIN  = 10;
 static const uint8_t SHIFT_CLK_PIN   = 9;
 static const uint8_t SHIFT_LATCH_PIN = 8;
-
-// Helper masks for the decimal flags (upper nibble of U1).
-// These map to U1 QA..QD respectively and control the decimal point on each
-// display.  Adjust the mapping if your PCB routes the flags differently.
-static const uint8_t DECIMAL_LEFT_TIME   = 0b0001; // U1 QA – decimal on left lane time
-static const uint8_t DECIMAL_RIGHT_TIME  = 0b0010; // U1 QB – decimal on right lane time
-static const uint8_t DECIMAL_LEFT_REACT  = 0b0100; // U1 QC – decimal on left lane reaction
-static const uint8_t DECIMAL_RIGHT_REACT = 0b1000; // U1 QD – decimal on right lane reaction
 
 void setupDisplay() {
 	// Configure shift register control pins.  
@@ -59,7 +51,7 @@ void updateDisplay(uint32_t timeUs, bool isReaction, bool isLeft) {
 //****Current code shifts out each digit separately Consider buffering all digits and updating in one operation****
 //****
 
-static uint16_t buildPattern(uint8_t digitIndex, uint8_t digitValue, bool showDecimal, bool isReaction, bool isLeft) {
+uint16_t buildPattern(uint8_t digitIndex, uint8_t digitValue, bool showDecimal, bool isReaction, bool isLeft) {
 	// Build a 16‑bit pattern to send to the chained 74HC595 shift registers.
 	// Bits [15..12] map to U1 QE..QH which carry the 4‑bit BCD value (AD0..AD3).
 	// Bits [11..8]  map to U1 QA..QD which enable decimal points on the left and right displays for time and reaction measurements.
@@ -99,7 +91,7 @@ static uint16_t buildPattern(uint8_t digitIndex, uint8_t digitValue, bool showDe
     return pattern;
 }
 
-static void shiftOut16(uint16_t value) {
+void shiftOut16(uint16_t value) {
 	// Shift a 16‑bit value into the chained 74HC595s.  Bits are transmitted MSB first.  
 	// After shifting, the latch pin is toggled high then low to update the outputs.  
 	// Adjust the latch timing if needed for your particular hardware (some designs require a short delay).

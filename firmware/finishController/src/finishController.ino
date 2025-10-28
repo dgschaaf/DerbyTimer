@@ -4,6 +4,8 @@
 //#include "btComm.h"
 //#include "display.h"
 
+bool needReact 		= false;		// Flag to indicate if reaction time is needed
+
 // Results structure for a lane.  Times are stored in microseconds
 struct raceResults {
     uint8_t		carID;			// 4‑byte UID
@@ -122,7 +124,7 @@ void loop() {
 				rxRaceStart	= false;
 			}
 			if (rxRaceStart && (race.raceStartUs == 0)) {
-				race.raceStartUs	= micros;
+				race.raceStartUs	= micros();
 				armSensors(race.raceStartUs);
 			}
 			stm.rxTransition(rxState);						// transitions state if received target	
@@ -133,13 +135,17 @@ void loop() {
 			
 		case RACE_RACING:
 			if(stm.entry){
-				uint32_t now				= micros();
+				// Reset recording flags and times
 				race.leftRecorded	= false;
 				race.rightRecorded	= false;
-				armSensors(now);				// arm the sensors
 				race.leftTimeUs			= 0;
 				race.rightTimeUs		= 0;
 				stm.entry = false;
+				// Only arm if not already armed from COUNTDOWN state
+				if (race.raceStartUs == 0){
+					race.raceStartUs = micros();
+					armSensors(race.raceStartUs);
+				}
 			}
 			handleSensors();					// check for interrupt and record finish time
 			handleRxResults();					// store results from rxSerial
@@ -298,8 +304,8 @@ void handleRxResults() {
  * ========================================================================= */
 void computeRaceTimes() {
 	// race time is the raw time from GO to FINISH
-	leftResults.raceTime	= race.leftTimeUs;
-	rightResults.raceTime	= race.rightTimeUs;
+	leftResults.raceTimeUs	= race.leftTimeUs;
+	rightResults.raceTimeUs	= race.rightTimeUs;
 	
 	// carTime is raceTime with reactionTime
 	// foul indicates addition (trigger before GO) so multiply by +1
@@ -323,7 +329,7 @@ void transmitWinnerToSC(){
 	}
 	static bool txWin = true;
 	while (txWin) {
-		txStatus win = txWinner(uint8_t winnerMask);
+		txStatus win = txWinner(winnerMask);
 		switch (win) {
 			case TX_ACKED:										
 				txWin 		= false;						// winner transmission no longer pending
