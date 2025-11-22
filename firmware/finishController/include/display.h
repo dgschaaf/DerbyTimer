@@ -1,10 +1,9 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
+#include <Arduino.h>
 
 void setupDisplay();
-void updateDisplay(uint32_t timeUs, bool isReaction, bool isLeft);
-static uint16_t buildPattern(uint8_t digitIndex, uint8_t digitValue, bool showDecimal, bool isReaction, bool isLeft);
-static void shiftOut16(uint16_t value);
-
-
-#endif
+// Update one full lane: show a 32-bit time value (µs), converted to MM.MMM
+// isLeft = true → left lane, false → right lane
+void updateDisplay(uint32_t timeUs, bool isLeft);
+void clearDisplay(bool isLeft);

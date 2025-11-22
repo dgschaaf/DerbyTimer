@@ -91,7 +91,8 @@ void loop() {
 		case RACE_IDLE:
 			if(stm.entry){
 				stm.entry = false;
-				// clear display
+				clearDisplay(true);				// clear display (left)
+				clearDisplay(false);			// clear display (right))
 			}
 			if (targetMode != currentMode){
 				handleModeTransition(targetMode);			// manage mode transition
@@ -355,8 +356,8 @@ void transmitResultsToRM(){
 }
 
 static void displayCarTimes() {	
-	updateDisplay(leftResults.carTimeUs, false, true);
-	updateDisplay(rightResults.carTimeUs, false, false);
+	updateDisplay(leftResults.carTimeUs, true);
+	updateDisplay(rightResults.carTimeUs, false);
 	
 	if(currentMode != MODE_GATEDROP){
 		needReact			= true; 		// set flag to display reaction times next
@@ -364,8 +365,8 @@ static void displayCarTimes() {
 }
 
 static void displayReactionTimes() {	
-	updateDisplay(leftResults.reactionTimeUs, true, true);
-	updateDisplay(rightResults.reactionTimeUs, true, false);
+	updateDisplay(leftResults.reactionTimeUs, true);
+	updateDisplay(rightResults.reactionTimeUs, false);
 }
 
 /* =========================================================================
