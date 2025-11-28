@@ -54,20 +54,6 @@ bool rxSerial() {
 			}
 			break;
 		}
-		case MSG_LEFT_CAR_ID:
-		case MSG_RIGHT_CAR_ID: {
-			if (Serial.available() >= serialUIDLength) {
-				uint8_t uid[serialUIDLength];
-				Serial.readBytes(uid, serialUIDLength);
-				if (rxID == MSG_LEFT_CAR_ID) {
-					memcpy(rxLeftID, uid, serialUIDLength);  // leftCarID must be uint8_t[4]
-				} else {
-					memcpy(rxRightID, uid, serialUIDLength);
-				}
-				txAck(rxID);
-			}
-			break;
-		}
 		case MSG_RACE_START: {
 			if (Serial.available() >= 1) {
 				uint8_t startMask 	= Serial.read();
@@ -195,36 +181,6 @@ txStatus txRaceState(raceState newState){
 			}
 			sendMessage(MSG_RACE_STATE, &payload, 1);	// send payload	
 			state.sendTime 	= now;						// timestamp transmission
-			state.retries++;							// increment retries
-			return state.status 	= TX_SENT;
-	}
-}
-
-txStatus txCarID(uint8_t* uid, bool isLeft){
-	serialMsgID msgID;
-	if (isLeft){
-		msgID 				= MSG_LEFT_CAR_ID;			// set message ID
-	} else {
-		msgID 				= MSG_RIGHT_CAR_ID;			// set message ID
-	}
-	auto& state 			= txState[msgID];
-	unsigned long now 		= millis();
-	switch (state.status) {
-		case TX_SENT:
-			if (now - state.sendTime >= txTimeout){		// check if response waiting exceeded
-				return state.status 		= TX_TIMEOUT;
-			}
-		case TX_ACKED:
-		case TX_FAILED:
-		case TX_TIMEOUT:
-			return state.status;
-		case TX_NONE:	
-		case TX_NACKED:
-			if (state.retries > maxRetries){			// check if retries exceeded
-				return state.status = TX_FAILED;
-			}
-			sendMessage(msgID, uid, serialUIDLength);	// send payload	
-			state.sendTime	= now;						// timestamp transmission
 			state.retries++;							// increment retries
 			return state.status 	= TX_SENT;
 	}
@@ -414,10 +370,6 @@ uint8_t getExpectedPayloadLength(serialMsgID id) {
 		case MSG_NACK:
 		case MSG_ERROR:
 			return 1;
-
-		case MSG_LEFT_CAR_ID:
-		case MSG_RIGHT_CAR_ID:
-			return serialUIDLength;  // raw UID
 
 		case MSG_LEFT_REACT:
 		case MSG_RIGHT_REACT:

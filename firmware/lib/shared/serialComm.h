@@ -7,8 +7,6 @@ enum serialMsgID : uint8_t {
 	MSG_NULL,			// empty id, used as initialization placeholder
 	MSG_ACK, 			// acknowledge
 	MSG_NACK, 			// not acknowledge
-    MSG_LEFT_CAR_ID,	// string identifier of car from rfid (maybe need car ok response or ACK?)
-	MSG_RIGHT_CAR_ID,	// string identifier of car from rfid (maybe need car ok response or ACK?)
     MSG_RACE_MODE,  	// race mode change (idle only)
 	MSG_RACE_STATE, 	// state change
     MSG_RACE_START, 	// start race, finish starts timer
@@ -53,7 +51,6 @@ bool rxSerial();
 // Tx helper functions
 txStatus txRaceMode(raceMode newMode);
 txStatus txRaceState(raceState newState);
-txStatus txCarID(uint8_t* uid, bool isLeft);
 txStatus txRaceStart(uint8_t start);
 txStatus txReactionTime(uint32_t reactionTime, bool isLeft);
 txStatus txFoulStatus(uint8_t foul);
@@ -70,7 +67,6 @@ void resetTxState(serialMsgID id);
 
 // defintions
 #define txTimeout 			50		// milliseconds to wait for tx timeout
-#define serialUIDLength		4 		// byte length for the RFID tag from RC522
 
 // Received Message Variables
 extern const uint8_t maxRetries;
@@ -91,7 +87,5 @@ extern bool	rxTie;
 extern bool rxDisplayAdvanceFlag;
 extern int32_t rxLeftReactionTime;
 extern int32_t rxRightReactionTime;
-extern uint8_t rxLeftID[serialUIDLength];
-extern uint8_t rxRightID[serialUIDLength];
 
 #endif

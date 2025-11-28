@@ -1,14 +1,12 @@
 #include "sensors.h"
 #include "globals.h"
 #include "serialComm.h"
-//#include "btComm.h"
-//#include "display.h"
+#include "display.h"
 
 bool needReact 		= false;		// Flag to indicate if reaction time is needed
 
 // Results structure for a lane.  Times are stored in microseconds
 struct raceResults {
-    uint8_t		carID;			// 4‑byte UID
 	bool		left;			// indicates track left(true) or right(false);
     bool		foul;			// whether a foul occurred (false start)
     bool		winner;			// true if this lane won the race
@@ -67,17 +65,15 @@ struct RaceTimingData {
 };
 
 // Static instances for left and right lanes; lifetime extends over loops.
-static raceResults leftResults	= {0, true, false, false, 0, 0, 0};
-static raceResults rightResults	= {0, false, false, false, 0, 0, 0};
+static raceResults leftResults	= {true, false, false, 0, 0, 0};
+static raceResults rightResults	= {false, false, false, 0, 0, 0};
 static StateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
 static RaceTimingData race		= {0, 0, 0, false, false};
 
 void setup() {
 	setupSerial();
 	setupSensors();
-	setupDisplay();
-	//setupBT();
-	
+	setupDisplay();	
 	// Start in idle state.  These variables are declared in globals.h.
     stm.current = RACE_IDLE;
     stm.target  = RACE_IDLE;
@@ -96,15 +92,11 @@ void loop() {
 			}
 			if (targetMode != currentMode){
 				handleModeTransition(targetMode);			// manage mode transition
-				// tx mode change to BLE raceManager
-				// what if rx race mode from BLE raceManager
 			}
-			// can initiate state change if raceManager requests test mode over BLE
 			// stm.transition(stm.target);						// transitions state if updated target
 			stm.rxTransition(rxState);						// transitions state if received target
 			if(stm.exit){
 				stm.exit = false;
-				// tx state change to BLE raceManager
 			}
 			break;
 			
@@ -112,7 +104,6 @@ void loop() {
 			if(stm.entry){
 				stm.entry = false;
 			}
-			handleCarID();						// manage handoff of car ID between startController and raceManager
 			stm.rxTransition(rxState);						// transitions state if received target
 			if(stm.exit){
 				stm.exit = false;
@@ -166,7 +157,6 @@ void loop() {
 				rxDisplayAdvanceFlag	= false;	// clear flag for safety
 				computeRaceTimes();					// calculate and compile race times, reaction times, and winner
 				transmitWinnerToSC();				// send winner over serial to startController
-				//transmitResultsToRM();			// send results over BT to raceManager
 				displayCarTimes();					// push car times to display
 				stm.entry 					= false;	// done with stm.entry tasks
 			}
@@ -184,8 +174,8 @@ void loop() {
 			if(stm.exit){
 				stm.exit = false;
 				// carID, left, foul, winner, carTimeUs, raceTimeUs, reactionTimeUs
-				leftResults		= {0,	true,	false,	false,	0,	0,	0};		// reset left results struct
-				rightResults	= {0,	false,	false,	false,	0,	0,	0};		// reset right results struct
+				leftResults		= {true,	false,	false,	0,	0,	0};		// reset left results struct
+				rightResults	= {false,	false,	false,	0,	0,	0};		// reset right results struct
 			}
 			break;
 			
@@ -212,37 +202,10 @@ void loop() {
  /* =========================================================================
  *                        RACE_STAGING HELPER FUNCTIONS
  * ========================================================================= */
-static void handleCarID() {
-	// manage handoff of car ID between startController and raceManager
-	if (rxLeftID != 0){
-		// leftResults.carID = rxLeftID; 	// update onboard ID
-		// rxLeftID = 0; 					// clear serial received ID
-		// (post left ID to BLE) 			// send to raceManager
-	}
-	if (rxRightID !=0) {
-		// rightResults.carID = rxRightID;	// update onboard ID
-		// rxRightID = 0;					// clear serial received ID
-		// (post right ID to BLE)			// send to raceManager
-	}
-	if (btLeftID !=0){
-		// transmit over serial left ID 	// send to startController
-		// btLeftID = 0; 					// clear BLE received ID
-		// dont store the value, raceManager is only used for confirmation and not data source
-		
-	}
-	if (btRightID !=0){
-		// transmit over serial right ID 	// send to startController
-		// btRightID = 0; 					// clear BLE received ID
-		// dont store the value, raceManager is only used for confirmation and not data source
-	}
-}
 
 /* =========================================================================
  *                        RACE_COUNTDOWN HELPER FUNCTIONS
  * ========================================================================= */
-
-
-
 
 /* =========================================================================
  *                        RACE_RACING HELPER FUNCTIONS
@@ -352,9 +315,6 @@ void transmitWinnerToSC(){
 	}
 }
 
-void transmitResultsToRM(){
-}
-
 static void displayCarTimes() {	
 	updateDisplay(leftResults.carTimeUs, true);
 	updateDisplay(rightResults.carTimeUs, false);
@@ -373,7 +333,6 @@ static void displayReactionTimes() {
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
 void handleModeTransition(raceMode target) {
-	// coordinate mode transition to COMPLETION with raceManager over BT (protocol TBD)
 	// coordinate mode transition to COMPLETION with startController over Serial
 	
 	// MSG_RACE_MODE  --> rxMode

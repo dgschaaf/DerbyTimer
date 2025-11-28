@@ -5,7 +5,7 @@ Date: September 2025
 
 ### System Overview
 
-The Start Controller manages the beginning of pinewood derby races, controlling starting gates, countdown lights, and car identification. It operates as an embedded system on an Arduino Nano with a custom PCB shield, communicating with a separate Finish Controller via serial UART.
+The Start Controller manages the beginning of pinewood derby races, controlling starting gates, and countdown lights. It operates as an embedded system on an Arduino Nano with a custom PCB shield, communicating with a separate Finish Controller via serial UART.
 
 ### Core Capabilities
 
@@ -18,7 +18,6 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 * \*\*Dual Starting Gates\*\*: Electromagnet-held gates with spring-loaded drop mechanism
 * \*\*Return Solenoid\*\*: Automated gate reset system with 500ms activation window
 * \*\*Christmas Tree Lights\*\*: Dual 6-light arrays (Blue, Yellow×3, Green, Red) via shift register
-* \*\*RFID Car Detection\*\*: Dual RC522 modules for automatic car identification
 
 #### User Interface
 * \*\*Four Button Inputs\*\*: Start, Mode, Left Lane, Right Lane
@@ -35,14 +34,12 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 | \*\*lights\*\* | LED tree control via shift register | `updateLights()`, `buildLightConfig()`, `startBlink()` |
 | \*\*gates\*\* | Electromagnet and solenoid control | `dropGate()`, `returnGates()` |
 | \*\*buttons\*\* | Input debouncing and detection | `isStartPressed()`, `isModePressed()` |
-| \*\*rfid\*\* | NFC car identification | `readTag()`, `setupRFID()` |
 | \*\*globals\*\* | Shared enumerations and constants | Race states, modes, bit masks |
 
 #### Communication Protocol
 
 ##### Message Types (14 total):
 * State synchronization (MODE, STATE)
-* Car identification (LEFT\_CAR\_ID, RIGHT\_CAR\_ID)
 * Race events (START, REACT, FOUL, WINNER)
 * Control flow (ACK, NACK, ERROR)
 
@@ -89,7 +86,6 @@ Combines procedural functions with data structs, avoiding over-engineering while
 | \*\*Serial Baud\*\* | 115,200 | High-speed UART |
 | \*\*Reaction Precision\*\* | ±1 µs | Using micros() |
 | \*\*Message Timeout\*\* | 50 ms | Balance between responsiveness and reliability |
-| \*\*RFID Read Rate\*\* | 2 Hz | 500ms threshold between reads |
 | \*\*Countdown Timing\*\* | 400-500 ms | Mode-dependent staging |
 
 ### Extension Points
@@ -110,7 +106,7 @@ Combines procedural functions with data structs, avoiding over-engineering while
 * Arduino Nano (ATmega328P)
 * Custom PCB shield (see schematic)
 * External 5V regulator for electromagnets
-* External 3.3V regulator for RFID modules
+* External 3.3V regulator for RFID modules (growth)
 * 74HC595 shift register for lights
 
 #### Pin Assignments
@@ -119,7 +115,7 @@ See pinout documentation for complete mapping. Note D18/D19 correction from orig
 #### Power Considerations
 * 12V supply for electromagnets and lights
 * 5V logic with external regulation
-* 3.3V RFID with external regulation
+* 3.3V RFID with external regulation (growth)
 * ~1A peak current during gate return
 
 ### Maintenance Guidelines
@@ -139,9 +135,8 @@ See pinout documentation for complete mapping. Note D18/D19 correction from orig
 #### Testing Recommendations
 1. Light test pattern on startup
 2. Gate cycling verification
-3. RFID read confirmation via LED feedback
-4. Serial loopback testing
-5. Timing accuracy validation
+3. Serial loopback testing
+4. Timing accuracy validation
 
 ### Summary
 The Start Controller represents a well-engineered embedded system that balances sophistication with maintainability. Its modular architecture, clear state machine, and robust communication protocol make it suitable for reliable race management while remaining accessible for hobbyist modification and debugging.

@@ -6,14 +6,11 @@
  * Compile: Arduino IDE 1.8+ or PlatformIO
  * Board: Arduino Nano
  * Libraries Required:
- *   - MFRC522 (for RFID)
- *   - SPI (built-in)
  */
 
 #include <Arduino.h>
 #include "lights.h"
 #include "gates.h"
-#include "rfid.h"
 #include "serialComm.h"
 #include "buttons.h"
 #include "globals.h"
@@ -150,12 +147,6 @@ static bool reactRightPending			= false;		// marker for if right reaction tx is 
 static bool foulStatusPending			= false;		// marker for if foul status tx is pending
 static unsigned long startDelay			= 0;			// Unused, delay between start and ACK
 
-// rfid
-RFIDResult rfidLStat;									// result from left reader
-RFIDResult rfidRStat;									// result from right reader
-static bool txLID						= false;		// marker for if left ID is tx pending
-static bool txRID						= false;		// marker for if right ID is tx pending
-
 // results
 static bool winLightsPend				= false;		// marker if result lights need to display
 static bool dispAdv						= false;		// marker for pending tx display advance
@@ -217,7 +208,6 @@ void setup(){
 	setupButtons();
 	setupGates();
 	setupLights();
-	setupRFID();														// note this returns a bool
 }
 
 
@@ -276,81 +266,9 @@ void loop(){
 				stm.entry			= false;
 				returnGates(); 										// reset the gate status to park the cars
 				updateLights(LIGHT_BL | LIGHT_BR); 					// set the lights to blue
-				memset(leftCarID, 0, UID_LEN);						// clear rx for left ID
-				memset(rightCarID, 0, UID_LEN);						// clear rx for right ID
 				blinkState.active 	= false;  						// Clear any pending blinks
 			}
 			if(gateStatus.returnActive)	returnGates();				// call this until it returnActive is false
-
-			if(rxID == MSG_LEFT_CAR_ID){
-    			if(memcmp(rxLeftID, leftCarID, UID_LEN)==0) {
-        			startBlink(LIGHT_BL | LIGHT_BR, LIGHT_BR, 3, 250, LIGHT_BL | LIGHT_BR);	// Match - blink blue 
-    			} else if(memcmp(rxLeftID, "\0\0\0\0", UID_LEN) != 0) {
-        			startBlink(LIGHT_BL, LIGHT_FL, 3, 250, LIGHT_BL | LIGHT_BR);			// Non-zero mismatch - manager says wrong car, blink red+blue
-    			}
-    			// If rxLeftID is all zeros, manager didn't recognize - no action needed
-			}
-			if(rxID == MSG_RIGHT_CAR_ID){
-    			if(memcmp(rxRightID, leftCarID, UID_LEN)==0) {
-        			startBlink(LIGHT_BL | LIGHT_BR, LIGHT_BR, 3, 250, LIGHT_BL | LIGHT_BR);	// Match - blink blue 
-    			} else if(memcmp(rxRightID, "\0\0\0\0", UID_LEN) != 0) {
-        			startBlink(LIGHT_BR, LIGHT_FR, 3, 250, LIGHT_BL | LIGHT_BR);			// Non-zero mismatch - manager says wrong car, blink red+blue
-    			}
-    			// If rxRightID is all zeros, manager didn't recognize - no action needed
-			}
-
-			rfidLStat = leftReader.readTag(rfidThresh);				// poll the left RFID reader
-			if(rfidLStat == RFID_NEW){
-				memcpy(leftCarID, leftReader.uid, UID_LEN);
-				txLID 				= true;
-			}
-			if(txLID){
-				txStatus lid = txCarID(leftCarID, true); 				// helper function handles transmission status
-				switch (lid) {
-					case TX_ACKED:										
-						txLID 		= false;							// left ID no longer pending
-						resetTxState(MSG_LEFT_CAR_ID);
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						txLID 		= false;							// left ID transmission failed
-						resetTxState(MSG_LEFT_CAR_ID);					// reset transmit message
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
-			}
-			rfidRStat = rightReader.readTag(rfidThresh);			// poll the right RFID reader	
-			if (rfidRStat == RFID_NEW){
-				memcpy(rightCarID, rightReader.uid, UID_LEN);
-				txRID 				= true;
-			}
-			if(txRID){
-				txStatus rid = txCarID(rightCarID, true); 				// helper function handles transmission status
-				switch (rid) {
-					case TX_ACKED:										
-						txRID 		= false;							// right ID no longer pending
-						resetTxState(MSG_RIGHT_CAR_ID);
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						txRID 		= false;							// right ID transmission failed
-						resetTxState(MSG_RIGHT_CAR_ID);					// reset transmit message
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
-			}
 			updateBlink();
 
 			// Handle state changes via button press
