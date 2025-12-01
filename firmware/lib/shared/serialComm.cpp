@@ -1,12 +1,31 @@
-#include "serialComm.h"
 #include <Arduino.h>
+#include "serialComm.h"
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 
 
 serialMsgID lastAckedMsgID			= MSG_NULL;	// initialize to the null message
 serialMsgID lastNackedMsgID			= MSG_NULL;	// initialize to the null message
+serialMsgID rxID					= MSG_NULL;	// initialize to the null message
+errCode lastErrorCode				= err_NULL;	// initialize to the null error
 static const uint8_t maxRetries 	= 3;		// number of tx retries allowed
+
+// Initialize all external varaiables
+raceMode rxMode           			= MODE_GATEDROP;
+raceState rxState         			= RACE_IDLE;
+bool rxRaceStart          			= false;
+bool rxLeftStart          			= false;
+bool rxRightStart         			= false;
+bool rxLeftFoul           			= false;
+bool rxRightFoul          			= false;
+bool rxLeftWin            			= false;
+bool rxRightWin           			= false;
+bool rxTie                			= false;
+bool rxDisplayAdvanceFlag			= false;
+int32_t rxLeftReactionTime  		= -1;
+int32_t rxRightReactionTime 		= -1;
+//uint8_t rxLeftID[serialUIDLength] 	= {0};
+//uint8_t rxRightID[serialUIDLength]	= {0};
 
 struct TxTracker {
 	txStatus status;	

@@ -1,9 +1,12 @@
-#include "sensors.h"
-#include "globals.h"
-#include "serialComm.h"
+#include <Arduino.h>
+#include "finishController.h"
 #include "display.h"
+#include "sensors.h"
+#include "serialComm.h"
+#include "globals.h"
 
 bool needReact 			= false;		// Flag to indicate if reaction time is needed
+bool txWinPending		= false;		// Flag to indicate if winner transmission is pending
 raceMode currentMode;
 
 // Results structure for a lane.  Times are stored in microseconds
@@ -117,7 +120,7 @@ static raceResults rightResults	= {false, false, false, 0, 0, 0};
 static StateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
 static RaceTimingData race		= {0, 0, 0, false, false};
 
-void setup() {
+void finishControllerSetup() {
 	setupSerial();
 	setupSensors();
 	setupDisplay();	
@@ -127,7 +130,7 @@ void setup() {
     currentMode 				= MODE_GATEDROP;
 }
 
-void loop() {
+void finishControllerLoop() {
 	rxSerial();
 	switch(stm.current) {
 		case RACE_IDLE:
@@ -200,7 +203,7 @@ void loop() {
 			handleRxReaction();					// store reactio and foul from rxSerial
 
 			if (race.leftRecorded && race.rightRecorded) {
-				stm.target	= RACE_COMPLETION;	// initiate state transition when both sensors recorded
+				stm.target	= RACE_COMPLETE;	// initiate state transition when both sensors recorded
 			}
 			stm.selfTransition(stm.target);			// transitions state if updated target
 			
@@ -210,14 +213,18 @@ void loop() {
 			}
 			break;
 			
-		case RACE_COMPLETION:
+		case RACE_COMPLETE:
 			if(stm.entry){
 				needReact				= false;	// clear flag for safety
 				rxDisplayAdvanceFlag	= false;	// clear flag for safety
+				txWinPending			= true;		// set winner transmission flag
 				computeRaceTimes();					// calculate and compile race times, reaction times, and winner
-				transmitWinnerToSC();				// send winner over serial to startController
 				displayCarTimes();					// push car times to display
 				stm.entry 				= false;	// done with stm.entry tasks
+			}
+
+			if (txWinPending){
+				transmitWinnerToSC();				// send winner over serial to startController
 			}
 
 			if(rxDisplayAdvanceFlag) {
@@ -320,7 +327,7 @@ void handleRxReaction() {
 }
 
 /* =========================================================================
- *                        RACE_COMPLETION HELPER FUNCTIONS
+ *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
 void computeRaceTimes() {
 	// race time is the raw time from GO to FINISH
@@ -347,27 +354,24 @@ void transmitWinnerToSC(){
 		// Neither flagged winner – treat as tie.
 		winnerMask |= 0b0100;
 	}
-	static bool txWin = true;
-	while (txWin) {
-		txStatus win = txWinner(winnerMask);
-		switch (win) {
-			case TX_ACKED:										
-				txWin 		= false;						// winner transmission no longer pending
-				resetTxState(MSG_WINNER);
-				break;
-			case TX_TIMEOUT:
-			case TX_FAILED:
-				txWin 		= false;						// winner transmission failed
-				resetTxState(MSG_WINNER);					// reset transmit message
-				// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-				// future: log / transmit state transition error
-				break;
-			case TX_NONE:
-			case TX_SENT:
-			case TX_NACKED:
-			default:
-				break;
-		}
+	txStatus win = txWinner(winnerMask);
+	switch (win) {
+		case TX_ACKED:										
+			txWinPending = false;						// winner transmission no longer pending
+			resetTxState(MSG_WINNER);
+			break;
+		case TX_TIMEOUT:
+		case TX_FAILED:
+			txWinPending = false;						// winner transmission failed
+			resetTxState(MSG_WINNER);					// reset transmit message
+			// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
+			// future: log / transmit state transition error
+			break;
+		case TX_NONE:
+		case TX_SENT:
+		case TX_NACKED:
+		default:
+			break;
 	}
 }
 

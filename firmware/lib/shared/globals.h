@@ -17,7 +17,7 @@
 #define foul_both		0b0011
 
 // **************** ENUMERATIONS ****************
-enum raceState uint8_t { 
+enum raceState : uint8_t { 
 	RACE_IDLE,
 	RACE_STAGING,
 	RACE_COUNTDOWN,
@@ -26,7 +26,7 @@ enum raceState uint8_t {
 	RACE_TEST
 	};
 	
-enum countdownState uint8_t {
+enum countdownState : uint8_t {
 	CD_IDLE,
 	CD_STAGED,
 	CD_Y3,
@@ -35,7 +35,7 @@ enum countdownState uint8_t {
 	CD_GO 
 	};
 
-enum raceMode uint8_t {
+enum raceMode : uint8_t {
 	MODE_GATEDROP,
 	MODE_REACTION,
 	MODE_PRO,
