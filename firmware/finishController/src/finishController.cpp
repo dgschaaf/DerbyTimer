@@ -43,12 +43,12 @@ struct StateMachine {
     void selfTransition(raceState newState) {
 		// 1. Reject illegal transitions
         if (!allowedTransition(newState)) {
-			return false;
+			return;
 		}
 
 		// 2. Check if already in target state
         if (current == newState) {
-            return true;
+            return;
         }
 
 		// 3. Set intention to transition
@@ -64,45 +64,35 @@ struct StateMachine {
 				current	= target;   // commit new state
 				exit 	= true;   		// run exit logic
 				resetTxState(MSG_RACE_STATE);
-				return true;
+				return;
 
 			case TX_TIMEOUT:
 			case TX_FAILED:
 				// Transition failed, revert intention and abandon transition
 				target	= current;
 				resetTxState(MSG_RACE_STATE);
-				return false;
+				return;
 
 			default:
 				// Still TX_SENT or waiting for ACK
-				return false;
+				return;
 		}
 
         return true;  // Already in target state
     }
 
-    bool isStateTxInFlight() const {
-        const auto& s = txState[MSG_RACE_STATE];  // from serialComm
-        return (s.status == TX_SENT);
-    }
-
     void rxTransition(raceState newState) {
-		// 1. Abort current state transition if new rx received
-		if (isStateTxInFlight()) {
-			resetTxState(MSG_RACE_STATE);
-		}
-
-		// 2. Check if already in target state
+		// 1. Check if already in target state
         if (current == newState) {
-            return true;
+            return;
         }
 
-		// 3. Commit local state change
+		// 2. Commit local state change
 		target 			= newState;
 		current			= newState;
 		entry  			= true;
 		exit   			= true;
-		return true;
+		return;
 	}
 };
 
@@ -129,6 +119,15 @@ void finishControllerSetup() {
     stm.target					= RACE_IDLE;
     currentMode 				= MODE_GATEDROP;
 }
+
+// Internal helpers (file-local)
+static void handleSensors();
+static void handleRxReaction();
+static void computeRaceTimes();
+static void transmitWinnerToSC();
+static void displayCarTimes();
+static void displayReactionTimes();
+
 
 void finishControllerLoop() {
 	rxSerial();

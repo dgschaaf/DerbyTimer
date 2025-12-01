@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "serialComm.h"
+#include "globals.h"
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 
@@ -54,7 +55,7 @@ bool rxSerial() {
 	// Peek at the ID and determine if the entire payload has been received before processing
 	if (available < (1 + expectedLen)) return false;
 
-	serialMsgID rxID = (serialMsgID)Serial.read();  // Read 1-byte message ID
+	rxID = (serialMsgID)Serial.read();  // Read 1-byte message ID
 
 	switch (rxID) {
 		case MSG_RACE_MODE: {
@@ -141,7 +142,7 @@ bool rxSerial() {
 		}
 		case MSG_ERROR: {
 			if (Serial.available() >= 1) {
-				errCode lastErrorCode = (errCode)Serial.read(); // error code for logging
+				lastErrorCode = (errCode)Serial.read(); // error code for logging
 			}
 			break;
 		}

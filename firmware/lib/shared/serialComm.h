@@ -1,8 +1,7 @@
 #ifndef serialComm_H
 #define serialComm_H
-#include "globals.h"
 
-// enumerations
+// -------------------- Message IDs --------------------
 enum serialMsgID : uint8_t {
 	MSG_NULL,			// empty id, used as initialization placeholder
 	MSG_ACK, 			// acknowledge
@@ -23,6 +22,7 @@ enum serialMsgID : uint8_t {
 	MSG_COUNT			// keep as last to count the number of messages
 };
 
+// -------------------- TX Status --------------------
 enum txStatus : uint8_t {
 	TX_NONE,			// message not yet sent
 	TX_SENT,			// message sent
@@ -34,6 +34,7 @@ enum txStatus : uint8_t {
 	TX_STATUS_COUNT		// keep as last to count the number of statuses
 };
 
+// -------------------- Error Codes --------------------
 enum errCode : uint8_t {
 	err_NULL,				// empty error, used as initialization placeholder
 	err_STATE_TX_TIMEOUT,	// State transition message timeout
@@ -45,40 +46,15 @@ enum errCode : uint8_t {
 
 	err_Count				// keep as last to count the number of errors
 };
-	
-// Setup helper functions
-void setupSerial();
 
-// Rx helper functions
-bool rxSerial();
-
-// Tx helper functions
-txStatus txRaceMode(raceMode newMode);
-txStatus txRaceState(raceState newState);
-txStatus txRaceStart(uint8_t start);
-txStatus txReactionTime(uint32_t reactionTime, bool isLeft);
-txStatus txFoulStatus(uint8_t foul);
-txStatus txWinner(uint8_t winner);
-txStatus txDisplayAdvance();
-txStatus txError(errCode err);
-void txAck(uint8_t ackID);
-void txNack(uint8_t nackID);
-
-// misc helper functions
-void sendMessage(serialMsgID id, const uint8_t* data, uint8_t dataLen);
-uint8_t getExpectedPayloadLength(serialMsgID id);
-void resetTxState(serialMsgID id);
-
-// defintions
-#define txTimeout 			50		// milliseconds to wait for tx timeout
-
-// Received Message Variables
+// Global RX state (updated by rxSerial)
 extern serialMsgID rxID;					// received message ID
 extern serialMsgID lastAckedMsgID;
 extern serialMsgID lastNackedMsgID;
 extern raceMode rxMode;
 extern raceState rxState;
 extern errCode lastErrorCode;
+
 extern bool	rxRaceStart;
 extern bool	rxLeftStart;
 extern bool	rxRightStart;
@@ -91,4 +67,28 @@ extern bool rxDisplayAdvanceFlag;
 extern int32_t rxLeftReactionTime;
 extern int32_t rxRightReactionTime;
 
-#endif
+// Public API
+void setupSerial();
+bool rxSerial();
+
+txStatus txRaceMode(raceMode newMode);
+txStatus txRaceState(raceState newState);
+txStatus txRaceStart(uint8_t start);
+txStatus txReactionTime(uint32_t reactionTime, bool isLeft);
+txStatus txFoulStatus(uint8_t foul);
+txStatus txWinner(uint8_t winner);
+txStatus txDisplayAdvance();
+txStatus txError(errCode err);
+
+void txAck(uint8_t ackID);
+void txNack(uint8_t nackID);
+
+// Helpers
+void sendMessage(serialMsgID id, const uint8_t* data, uint8_t dataLen);
+uint8_t getExpectedPayloadLength(serialMsgID id);
+void resetTxState(serialMsgID id);
+
+// TX timing
+#constexpr uint16_t txTimeout	= 50;	// milliseconds to wait for tx timeout
+
+#endif	// serialComm_H
