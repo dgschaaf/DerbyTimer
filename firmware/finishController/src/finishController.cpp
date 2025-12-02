@@ -1,3 +1,13 @@
+/*
+ * Pinewood Derby Track Finish Controller
+ * Version: 1.0
+ * Author: Darren Schaaf
+ * Date December 2025
+ * Compile: Arduino IDE 1.8+ or PlatformIO
+ * Board: Arduino Nano 33 BLE
+ * Libraries Required:
+ */
+
 #include <Arduino.h>
 #include "finishController.h"
 #include "display.h"
@@ -5,21 +15,7 @@
 #include "serialComm.h"
 #include "globals.h"
 
-bool needReact 			= false;		// Flag to indicate if reaction time is needed
-bool txWinPending		= false;		// Flag to indicate if winner transmission is pending
-raceMode currentMode;
-
-// Results structure for a lane.  Times are stored in microseconds
-struct raceResults {
-	bool		left;			// indicates track left(true) or right(false);
-    bool		foul;			// whether a foul occurred (false start)
-    bool		winner;			// true if this lane won the race
-    uint32_t	carTimeUs;		// computed car time including or excluding reaction
-    uint32_t	raceTimeUs;		// raw finish time from sensors
-    uint32_t	reactionTimeUs;	// reaction time measured at start
-};
-
-struct StateMachine {
+struct stateMachine {
 	raceState current;
 	raceState target;
 	bool entry;
@@ -39,7 +35,6 @@ struct StateMachine {
 		return allowed[current][next];
 	};
 
-	// Returns true when transition is complete
     void selfTransition(raceState newState) {
 		// 1. Reject illegal transitions
         if (!allowedTransition(newState)) {
@@ -78,7 +73,7 @@ struct StateMachine {
 				return;
 		}
 
-        return true;  // Already in target state
+        return;  // Already in target state
     }
 
     void rxTransition(raceState newState) {
@@ -96,7 +91,17 @@ struct StateMachine {
 	}
 };
 
-struct RaceTimingData {
+// Results structure for a lane.  Times are stored in microseconds
+struct raceResults {
+	bool		left;			// indicates track left(true) or right(false);
+    bool		foul;			// whether a foul occurred (false start)
+    bool		winner;			// true if this lane won the race
+    uint32_t	carTimeUs;		// computed car time including or excluding reaction
+    uint32_t	raceTimeUs;		// raw finish time from sensors
+    uint32_t	reactionTimeUs;	// reaction time measured at start
+};
+
+struct raceTimingData {
     uint32_t raceStartUs;
     uint32_t leftTimeUs;
     uint32_t rightTimeUs;
@@ -104,16 +109,26 @@ struct RaceTimingData {
     bool rightRecorded;
 };
 
+// State flags instance
+bool needReact 			= false;		// Reaction time is needed
+bool txWinPending		= false;		// Winner transmission is pending
+
+
 // Static instances for left and right lanes; lifetime extends over loops.
 static raceResults leftResults	= {true, false, false, 0, 0, 0};
 static raceResults rightResults	= {false, false, false, 0, 0, 0};
-static StateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
-static RaceTimingData race		= {0, 0, 0, false, false};
+static raceTimingData race		= {0, 0, 0, false, false};
+
+// State machine instance
+static stateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
+static raceMode currentMode;
+
 
 void finishControllerSetup() {
 	setupSerial();
 	setupSensors();
 	setupDisplay();	
+
 	// Start in idle state.  These variables are declared in globals.h.
     stm.current					= RACE_IDLE;
     stm.target					= RACE_IDLE;
