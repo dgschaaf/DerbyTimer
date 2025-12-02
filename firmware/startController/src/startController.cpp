@@ -2,9 +2,9 @@
  * Pinewood Derby Track Start Controller
  * Version: 1.0
  * Author: Darren Schaaf
- * Date September 2025
+ * Date December 2025
  * Compile: Arduino IDE 1.8+ or PlatformIO
- * Board: Arduino Nano
+ * Board: Arduino Nano AVR
  * Libraries Required:
  */
 
@@ -194,24 +194,18 @@ countdownState tickCountdownState(raceMode mode, countdownState cdState){
 	return cdState;	
 }
 
-// Helper function to calculate elapsed microseconds with overflow protection
-unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
-    if (endTime >= startTime) {
-        return endTime - startTime;  					// Normal case
-    } else {
-        return (0xFFFFFFFF - startTime) + endTime + 1;	// Overflow case
-    }
-}
-
-void setup(){
+void startControllerSetup(){
 	setupSerial();
 	setupButtons();
 	setupGates();
 	setupLights();
 }
 
+// Internal helpers (file-local)
+static unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime);
 
-void loop(){
+
+void finishControllerSetup(){
 	rxSerial();
 	switch(stm.current) {
 		case RACE_IDLE:
@@ -561,3 +555,36 @@ void loop(){
 			break;
 	}
 }
+
+/* =========================================================================
+ *                        RACE_IDLE HELPER FUNCTIONS
+ * ========================================================================= */
+ 
+ /* =========================================================================
+ *                        RACE_STAGING HELPER FUNCTIONS
+ * ========================================================================= */
+
+/* =========================================================================
+ *                        RACE_COUNTDOWN HELPER FUNCTIONS
+ * ========================================================================= */
+
+/* =========================================================================
+ *                        RACE_RACING HELPER FUNCTIONS
+ * ========================================================================= */
+
+unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
+	// Helper function to calculate elapsed microseconds with overflow protection
+    if (endTime >= startTime) {
+        return endTime - startTime;  					// Normal case
+    } else {
+        return (0xFFFFFFFF - startTime) + endTime + 1;	// Overflow case
+    }
+}
+
+ /* =========================================================================
+ *                        RACE_COMPLETE HELPER FUNCTIONS
+ * ========================================================================= */
+
+ /* =========================================================================
+ *                        GENERIC HELPER FUNCTIONS
+ * ========================================================================= */

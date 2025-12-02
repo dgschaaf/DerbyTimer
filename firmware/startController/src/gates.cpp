@@ -1,4 +1,5 @@
 #include "gates.h"
+#include <Arduino.h>
 
 // Gate pins
 const byte gateL 		= 4;

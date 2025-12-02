@@ -1,4 +1,5 @@
 #include "buttons.h"
+#include <Arduino.h>
 
 // Button pin definitions
 static const byte buttonLeft 	= 18;  				// Digital pin
