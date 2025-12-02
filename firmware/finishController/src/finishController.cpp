@@ -123,6 +123,14 @@ static raceTimingData race		= {0, 0, 0, false, false};
 static stateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
 static raceMode currentMode;
 
+// Internal helpers (file-local)
+static void handleSensors();
+static void handleRxReaction();
+static void computeRaceTimes();
+static void transmitWinnerToSC();
+static void displayCarTimes();
+static void displayReactionTimes();
+
 
 void finishControllerSetup() {
 	setupSerial();
@@ -134,15 +142,6 @@ void finishControllerSetup() {
     stm.target					= RACE_IDLE;
     currentMode 				= MODE_GATEDROP;
 }
-
-// Internal helpers (file-local)
-static void handleSensors();
-static void handleRxReaction();
-static void computeRaceTimes();
-static void transmitWinnerToSC();
-static void displayCarTimes();
-static void displayReactionTimes();
-
 
 void finishControllerLoop() {
 	rxSerial();

@@ -43,13 +43,13 @@ enum raceMode : uint8_t {
 	};
 
 // **************** Global Race Variables ****************
-extern unsigned long leftReactionTime;		// Reaction time for left track
-extern unsigned long rightReactionTime;		// Reaction time for right track
+//extern unsigned long leftReactionTime;		// Reaction time for left track
+//extern unsigned long rightReactionTime;		// Reaction time for right track
 
-extern unsigned long raceStartTime;			// Log the start time of the race
-extern unsigned long leftStartTime;			// Log the start time of the left track
-extern unsigned long rightStartTime;		// Log the start time of the right track
+//extern unsigned long raceStartTime;			// Log the start time of the race
+//extern unsigned long leftStartTime;			// Log the start time of the left track
+//extern unsigned long rightStartTime;		// Log the start time of the right track
 
-extern bool leftFoul;						// Log foul status of left track
-extern bool rightFoul;						// Log foul status of right track	
+//extern bool leftFoul;						// Log foul status of left track
+//extern bool rightFoul;						// Log foul status of right track	
 #endif

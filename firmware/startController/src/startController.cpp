@@ -15,7 +15,7 @@
 #include "buttons.h"
 #include "globals.h"
 
-struct StateMachine {
+struct stateMachine {
 	raceState current;
 	raceState target;
 	bool entry;
@@ -92,7 +92,7 @@ struct StateMachine {
 };
 
 // Mode machine structure for managing mode transitions
-struct ModeMachine {
+struct modeMachine {
 	raceMode current;
 	raceMode target;
 	void nextMode() {
@@ -190,11 +190,17 @@ struct raceResultsData {
 	bool rightFoul;
 };
 
+struct PendingMsgs {
+	bool leftReact;
+	bool rightReact;
+	bool foulStatus;
+};
+
 static_assert(UID_LEN == serialUIDLength, "UID Lengths Must Match");
 
 // State & mode machine instances
-static StateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
-static ModeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
+static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
+static modeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
 
 // timing
 static raceTimingData raceTime			= {0, 0, 0};
@@ -206,13 +212,12 @@ static countdownState cdState			= CD_IDLE;		// current countdownState value - se
 static countdownState prevCdState		= CD_IDLE;		// previous countdownState
 static unsigned long cdTimer			= 0;			// countdown timer
 static unsigned long stageDelay			= 500;			// default delay between staging sequences
-static bool pendStartTx					= false;		// marker for if start transmission is pending
 
 // racing
-static bool reactLeftPending			= false;		// marker for if left reaction tx is pending
-static bool reactRightPending			= false;		// marker for if right reaction tx is pending
-static bool foulStatusPending			= false;		// marker for if foul status tx is pending
+PendingMsgs pending 								= {false, false, false};
+
 static unsigned long startDelay			= 0;			// Unused, delay between start and ACK
+uint8_t foulMask						= 0;			// bitmask of fouls to send
 
 // results
 static bool winLightsPend				= false;		// marker if result lights need to display
@@ -221,6 +226,17 @@ static bool dispAdv						= false;		// marker for pending tx display advance
 // button management
 static bool startReleased				= true;
 static bool modeReleased				= true;
+
+// Internal helpers (file-local)
+static unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime);
+countdownState tickCountdownState(raceMode mode, countdownState cdState);
+static void handleModeChanges();
+static void handleEarlyStarts(unsigned long tn, raceMode mode);
+static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn);
+uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart);
+static void handleTrackTriggers();
+static void handleDisplayAdvance();
+bool handleResultsTx(int n)
 
 void startControllerSetup(){
 	setupSerial();
@@ -234,11 +250,6 @@ void startControllerSetup(){
 	mdm.current 				= MODE_GATEDROP;
 	mdm.target 					= MODE_GATEDROP;
 }
-
-// Internal helpers (file-local)
-static unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime);
-countdownState tickCountdownState(raceMode mode, countdownState cdState);
-
 
 void startControllerLoop(){
 	rxSerial();
@@ -255,18 +266,8 @@ void startControllerLoop(){
 			}
 			
 			updateBlink();
-			// Handle mode changes via button press or rxSerial
-			if (!blinkState.active){
-				if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
-				if (isModePressed() && modeReleased){
-					modeReleased			= false;					// don't revisit until released
-					mdm.nextMode();										// Select mode to advance to per transition order
-				}
-				mdm.rxTransition(rxMode);								// Handle unsolicited mode changes from rxSerial
-				mdm.selfTransition(mdm.target);							// Handle mode self-transition
-			}
-
-			// Handle state changes via button press or rxSerial
+			handleModeChanges();
+			
 			if (!blinkState.active){
 				if (isStartPressed())	stm.target = RACE_STAGING;		// Start moves to STAGING
 			}
@@ -287,10 +288,10 @@ void startControllerLoop(){
 				blinkState.active 	= false;  							// Clear any pending blinks
 			}
 
+			updateBlink();
+
 			if(gateStatus.returnActive)	returnGates();					// call this until it returnActive is false
 
-			updateBlink();
-			// Handle state changes via button press
 			if (!blinkState.active){
 				if (isStartPressed())	stm.target = RACE_COUNTDOWN;	// Start moves to COUNTDOWN
 				if (isModePressed())	stm.target = RACE_IDLE;			// Mode returns to IDLE
@@ -313,68 +314,18 @@ void startControllerLoop(){
 			
 			tNow = micros();
 
-			// Tick the countdown state.  This function will handle managing stage delays
-			// as well as managing the countdown state
-			cdState = tickCountdownState(mdm.current, cdState);
+			handleEarlyStarts(tNow, mdm.current);						// Watch for early starts, drop gates, and log fouls.
 
-			// Watch for the triggers (given right mode).  Drop the gate but store a foul.
-			if (mdm.current != MODE_GATEDROP){
-				if (isLeftPressed() && gateStatus.leftUp){
-					raceTime.leftStartUs	= tNow;
-					raceResults.leftFoul	= true;
-					dropGate(gateL);
-				}
-				if (isRightPressed() && gateStatus.rightUp){
-					raceTime.rightStartUs	= tNow;
-					raceResults.rightFoul	= true;
-					dropGate(gateR);
-				}
+			cdState = tickCountdownState(mdm.current, cdState);			// Tick the countdown state.
+			if (cdState == CD_GO){
+				handleCountdownGoActions(cdState, prevCDState, tNow);	// When GO is reached, start race and transition state.
 			}
-
-			if (cdState != prevCdState){
-				if (cdState == CD_GO){
-					stm.target = RACE_RACING					// when GO has been hit in countdown, trigger a state transition
-					raceTime.raceStartUs	= tNow;				// when GO has been hit in countdown, tell finishController race is started
-					pendStartTx				= true;
-					resetTxState(MSG_RACE_START);
-
-					if (mdm.current == MODE_GATEDROP){
-						// The gate drop mode everyone starts at the same time
-						raceTime.leftStartUs	= tNow;
-						raceTime.rightStartUs	= tNow;
-						dropGate(gateL);
-						dropGate(gateR);
-					}
-				}
-
-				byte cdLights	= buildLightConfig(cdState, leftFoul, rightFoul, mdm.current);	// set new light pattern
+			if(cdState != prevCdState){
+				byte cdLights	= buildLightConfig(cdState, raceResults.leftFoul, raceResults.rightFoul, mdm.current);	// set new light pattern
 				updateLights(cdLights);									// update lights only when new cdState
 				prevCdState = cdState;
 			}
 			
-			if (pendStartTx){
-				txStatus strt = txRaceStart(0b0001); 					// helper function handles transmission status
-				switch (strt) {
-					case TX_ACKED:
-						startDelay		= micros();						// Log time delay between actual and ACK start
-						pendStartTx 	= false;
-						resetTxState(MSG_RACE_START);
-						break;
-					case TX_TIMEOUT:
-					case TX_FAILED:
-						pendStartTx 	= false;
-						resetTxState(MSG_RACE_START);
-						// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-						// future: log / transmit state transition error
-						break;
-					case TX_NONE:
-					case TX_SENT:
-					case TX_NACKED:
-					default:
-						break;
-				}
-			}
-
 			stm.selfTransition(stm.target);								// transitions state if updated target
 
 			if(stm.exit){
@@ -386,12 +337,12 @@ void startControllerLoop(){
 			if(stm.entry){
 				stm.entry						= false;
 				raceResults.rightReactUs		= 0;									// reset reaction time
-				raceResults.leftReactUs		= 0;									// reset reaction time
+				raceResults.leftReactUs			= 0;									// reset reaction time
 				//unsigned long raceTimeOffset	= startDelay - raceTime.raceStartUs;	// not currently used but could compensate for line delays
-				foulStatusPending				= true;									// always send foul status
-				uint8_t foulMask				= 0;
-				if (leftFoul)  foulMask		   |= foul_left;							// add left foul status to mask
-				if (rightFoul) foulMask		   |= foul_right;							// add right foul stats to mask
+				pending.foulStatus				= true;									// always send foul status
+				foulMask						= 0;
+				if (raceResults.leftFoul)  foulMask		   |= foul_left;							// add left foul status to mask
+				if (raceResults.rightFoul) foulMask		   |= foul_right;							// add right foul stats to mask
 				resetTxState(MSG_RACE_START);
 				resetTxState(MSG_FOUL);
 				resetTxState(MSG_LEFT_REACT);
@@ -401,105 +352,31 @@ void startControllerLoop(){
 			tNow 							= micros();
 
 			if (mdm.current != MODE_GATEDROP){
-				// Watch for the triggers (given correct mode).
-				if (isLeftPressed() && gateStatus.leftUp){
-					leftStartTime 			= tNow;
-					dropGate(gateL);
-					reactLeftPending		= true;
-				}
-				if (isRightPressed() && gateStatus.rightUp){
-					rightStartTime 			= tNow;
-					dropGate(gateR);
-					reactRightPending 		= true;					
-				}
-				// calculate reaction times, gate drop stays at zero
+				handleTrackTriggers();
+
 				if (!gateStatus.leftUp && raceResults.leftReactUs == 0){
-					if (leftFoul){
-						raceResults.leftReactUs		= elapsedMicros(raceTime.raceStartUs, raceTime.leftStartUs);	// race time is bigger since they started early
-					} else {
-						raceResults.leftReactUs		= elapsedMicros(raceTime.leftStartUs, raceTime.raceStartUs);	// normally left start time is bigger
-					}
+					raceResults.leftReactUs	= calcReactionTimes(raceResults.leftFoul, raceTime.raceStartUs, raceTime.leftStartUs);
 				}
 				if (!gateStatus.rightUp && raceResults.rightReactUs == 0){
-					if (rightFoul){
-						raceResults.rightReactUs	= elapsedMicros(raceTime.raceStartUs, raceTime.rightStartUs);	// race time is bigger since they started early
-					} else {
-						raceResults.rightReactUs	= elapsedMicros(raceTime.rightStartUs, raceTime.raceStartUs);	// normally right start time is bigger
-					}
+					raceResults.rightReactUs	= calcReactionTimes(raceResults.rightFoul, raceTime.raceStartUs, raceTime.rightStartUs);
 				}
 			}
 
 			if (!gateStatus.leftUp && !gateStatus.rightUp){
-				// only transmit once both tracks have started to avoid detection delays
-				if (reactLeftPending){
-					txStatus lr = txReactionTime(raceResults.leftReactUs,true); 	// helper function handles transmission status
-					switch (lr) {
-						case TX_ACKED:										
-							reactLeftPending		= false;				// transmission complete
-							resetTxState(MSG_LEFT_REACT);
-							break;
-						case TX_TIMEOUT:
-						case TX_FAILED:
-							reactLeftPending 		= false;				// transmission failed
-							resetTxState(MSG_LEFT_REACT);					// reset transmit message
-							// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-							// future: log / transmit state transition error
-							break;
-						case TX_NONE:
-						case TX_SENT:
-						case TX_NACKED:
-						default:
-							break;
-					}
+				// Send all pending results messages, one at a time
+				if (pending.leftReact){
+					pending.leftReact	= handleResultsTx(MSG_LEFT_REACT);
+				} 
+				else if (pending.rightReact){
+						pending.rightReact	= handleResultsTx(MSG_RIGHT_REACT);
 				}
-			
-				if (reactRightPending){
-					txStatus rr = txReactionTime(raceResults.rightReactUs,false);
-					switch (rr) {
-						case TX_ACKED:										
-							reactRightPending		= false;				// transmission complete
-							resetTxState(MSG_RIGHT_REACT);
-							break;
-						case TX_TIMEOUT:
-						case TX_FAILED:
-							reactRightPending 		= false;				// transmission failed
-							resetTxState(MSG_RIGHT_REACT);					// reset transmit message
-							// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-							// future: log / transmit state transition error
-							break;
-						case TX_NONE:
-						case TX_SENT:
-						case TX_NACKED:
-						default:
-							break;
-					}
-				}
-				if (foulStatusPending){
-					txStatus f = txFoulStatus(foulMask);
-					switch (f) {
-						case TX_ACKED:										
-							foulStatusPending		= false;				// transmission complete
-							resetTxState(MSG_FOUL);
-							break;
-						case TX_TIMEOUT:
-						case TX_FAILED:
-							foulStatusPending 		= false;				// transmission failed
-							resetTxState(MSG_FOUL);							// reset transmit message
-							// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-							// future: log / transmit state transition error
-							break;
-						case TX_NONE:
-						case TX_SENT:
-						case TX_NACKED:
-						default:
-							break;
-					}
+				else if (pending.foulStatus){
+							pending.foulStatus	= handleResultsTx(MSG_FOUL);
 				}
 			}
 
 			if (!foulStatusPending && !reactLeftPending && !reactRightPending){
-				// wait until all pending messages have been sent until completing transition
-				stm.rxTransition(rxState);
+				stm.rxTransition(rxState);					// wait until all pending messages have been sent until completing transition
 			}
 
 			if(stm.exit){
@@ -513,54 +390,22 @@ void startControllerLoop(){
 				rxLeftWin				= false;
 				rxRightWin				= false;
 				rxTie					= false;
-				winLightsPend			= false;
+				winLightsPend			= true;
 				blinkState.active 		= false;  						// Clear any pending blinks
 			}
+
+			handleDisplayAdvance();
 			
-			if(rxSerial()){
-				// message-specific actions
-				if(rxID == MSG_WINNER){
-					winLightsPend			= true;						// set the winner lights to display
-				}
-			}
-			
-			if (winLightsPend){ 										// Blink lights to show winner
+			if (winLightsPend){ 
+				// Determine win light pattern to show winner and start blink
 				if(rxLeftWin)	startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
 				if(rxRightWin)	startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
 				if(rxTie) 		startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
 				winLightsPend 			= false;
-			}
-			
-			if (isStartPressed() && startReleased){
-				startReleased			= false;						// don't revist until button released
-				dispAdv					= true;
-				resetTxState(MSG_DISP_ADVANCE);
-			}
-			if (!isStartPressed())		startReleased	= true;			// button released, ready for next detection
-			
-			if (dispAdv){
-					txStatus d = txDisplayAdvance();
-					switch (d) {
-						case TX_ACKED:										
-							dispAdv		= false;						// transmission complete
-							resetTxState(MSG_DISP_ADVANCE);
-							break;
-						case TX_TIMEOUT:
-						case TX_FAILED:
-							dispAdv 	= false;						// transmission failed
-							resetTxState(MSG_DISP_ADVANCE);				// reset transmit message
-							break;
-						case TX_NONE:
-						case TX_SENT:
-						case TX_NACKED:
-						default:
-							break;
-					}
-				}
+			}			
 				
 			if (!winLightsPend && !updateBlink()){				// note: this also executes the updateBlink() function to process blinks
-				// wait until all pending messages have been sent until completing transition
-				stm.rxTransition(rxState);
+				stm.rxTransition(rxState); // wait until all pending messages have been sent until completing transition
 			}
 
 			if(stm.exit){
@@ -587,7 +432,22 @@ void startControllerLoop(){
 /* =========================================================================
  *                        RACE_IDLE HELPER FUNCTIONS
  * ========================================================================= */
- 
+ static void handleModeChanges(){
+ 	// Handle mode changes via button press or rxSerial
+	if (!blinkState.active){
+		if (rxMode != mdm.current){
+			mdm.rxTransition(rxMode);								// Handle unsolicited mode changes from rxSerial
+		} else {
+			if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
+			if (isModePressed() && modeReleased){
+				modeReleased			= false;					// don't revisit until released
+				mdm.nextMode();										// Select mode to advance to per transition order
+			}
+		}
+		mdm.selfTransition(mdm.target);							// Handle mode self-transition
+	}
+}
+
  /* =========================================================================
  *                        RACE_STAGING HELPER FUNCTIONS
  * ========================================================================= */
@@ -595,9 +455,69 @@ void startControllerLoop(){
 /* =========================================================================
  *                        RACE_COUNTDOWN HELPER FUNCTIONS
  * ========================================================================= */
+static void handleEarlyStarts(unsigned long tn, raceMode mode){
+	// Helper function to monitor for early starts during countdown
+	// Watch for the triggers (given right mode).  Drop the gate but store a foul.
+	if (mode != MODE_GATEDROP){
+		if (isLeftPressed() && gateStatus.leftUp){
+			raceTime.leftStartUs	= tn;
+			raceResults.leftFoul	= true;
+			dropGate(gateL);
+		}
+		if (isRightPressed() && gateStatus.rightUp){
+			raceTime.rightStartUs	= tn;
+			raceResults.rightFoul	= true;
+			dropGate(gateR);
+		}
+	}
+}
+
+static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn){
+	// Helper function to handle actions when countdown reaches GO state
+	// In GO state, drop gates as needed and log start times
+	static bool pendStartTx		= false;			// marker for if start transmission is pending
+	if (cdNow != cdPrev){
+		stm.target = RACE_RACING;					// when GO has been hit in countdown, trigger a state transition
+		raceTime.raceStartUs	= tn;				// when GO has been hit in countdown, tell finishController race is started
+		pendStartTx				= true;
+		resetTxState(MSG_RACE_START);
+
+		if (mdm.current == MODE_GATEDROP){
+			// The gate drop mode everyone starts at the same time
+			raceTime.leftStartUs	= tn;
+			raceTime.rightStartUs	= tn;
+			dropGate(gateL);
+			dropGate(gateR);
+		}
+	}
+
+	if (pendStartTx){
+		txStatus strt = txRaceStart(0b0001); 					// helper function handles transmission status
+		switch (strt) {
+			case TX_ACKED:
+				startDelay		= micros();						// Log time delay between actual and ACK start
+				pendStartTx 	= false;
+				resetTxState(MSG_RACE_START);
+				break;
+			case TX_TIMEOUT:
+			case TX_FAILED:
+				pendStartTx 	= false;
+				resetTxState(MSG_RACE_START);
+				// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
+				// future: log / transmit state transition error
+				break;
+			case TX_NONE:
+			case TX_SENT:
+			case TX_NACKED:
+			default:
+				break;
+		}
+	}
+}
 
 countdownState tickCountdownState(raceMode mode, countdownState cdState){
 	// Helper function to manage countdown timing based on race mode
+	// This function will handle managing stage delays as well as managing the countdown state
 	unsigned long currentTime = millis();
 	switch (cdState) {
 		case CD_STAGED:
@@ -647,9 +567,93 @@ unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
     }
 }
 
+uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart){
+	// calculate reaction times, gate drop stays at zero
+	if (foul){
+		return elapsedMicros(raceStart, carStart);		// race time is bigger since they started early
+	} else {
+		return elapsedMicros(carStart, raceStart);		// normally car time is bigger because it started after race
+	}
+}
+
+static void handleTrackTriggers(){
+	// Watch for the triggers (given correct mode).
+	if (isLeftPressed() && gateStatus.leftUp){
+		raceTime.leftStartUs	= tNow;
+		dropGate(gateL);
+		pending.leftReact		= true;
+	}
+	if (isRightPressed() && gateStatus.rightUp){
+		raceTime.rightStartUs	= tNow;
+		dropGate(gateR);
+		pending.rightReact 		= true;					
+	}
+}
+
+bool handleResultsTx(serialMsgID messageID){
+	txStatus res 		= TX_NONE;
+	switch (messageID){
+		case MSG_LEFT_REACT:
+			res 		= txReactionTime(raceResults.leftReactUs,true);
+			break;
+		case MSG_RIGHT_REACT:
+			res 		= txReactionTime(raceResults.rightReactUs,false);
+			break;
+		case MSG_FOUL:
+			res 		= txFoulStatus(foulMask);
+			break;
+		default:
+			return false;	// unknown case
+	}
+
+	switch (res) {
+		case TX_ACKED:										
+		case TX_TIMEOUT:
+		case TX_FAILED:
+			resetTxState(messageID);
+			return false;				// no longer pending
+
+		case TX_NONE:
+		case TX_SENT:
+		case TX_NACKED:
+		default:
+			return true;				// still pending
+	}
+	return pendFlag;
+}
+
  /* =========================================================================
  *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
+
+static void handleDisplayAdvance(){
+	if (isStartPressed() && startReleased){
+		startReleased			= false;						// don't revist until button released
+		dispAdv					= true;
+		resetTxState(MSG_DISP_ADVANCE);
+	}
+	if (!isStartPressed())		startReleased	= true;			// button released, ready for next detection
+
+	if (dispAdv){
+			txStatus d = txDisplayAdvance();
+			switch (d) {
+				case TX_ACKED:										
+					dispAdv		= false;						// transmission complete
+					resetTxState(MSG_DISP_ADVANCE);
+					break;
+				case TX_TIMEOUT:
+				case TX_FAILED:
+					dispAdv 	= false;						// transmission failed
+					resetTxState(MSG_DISP_ADVANCE);				// reset transmit message
+					break;
+				case TX_NONE:
+				case TX_SENT:
+				case TX_NACKED:
+				default:
+					break;
+			}
+		}
+}
 
  /* =========================================================================
  *                        GENERIC HELPER FUNCTIONS
