@@ -462,13 +462,16 @@ Upon successful completion of this functional test:
 ## Appendix A: Serial Command Reference
 
 ### Sensor Testing
+
 - `sensor_test` - Start continuous sensor monitoring (Lane 1 and Lane 2 states)
 
-### Display Testing  
+### Display Testing
+
 - `display1_test` - Cycle through 0-9 patterns on all 5 digits (Lane 1 / Left display)
 - `display2_test` - Cycle through 0-9 patterns on all 5 digits (Lane 2 / Right display)
 
 ### Combined Testing
+
 - `combined_test` - Run sensors and displays together for 60 seconds
 - `end_test` - Exit any active test mode and return to command prompt
 
@@ -490,23 +493,27 @@ Upon successful completion of this functional test:
 ## Appendix C: Diagnostics Quick Reference
 
 **No startup message?**
+
 - Check USB drivers
 - Try different COM port
 - Reload firmware and power-cycle Arduino
 
 **Sensors not responding?**
+
 - Verify Lane 1 and Lane 2 sensors are connected to J1
 - Check Schmitt trigger IC (U3: 74LVC2G14) for proper power
 - Measure sensor input voltage: should toggle between 0V and 3.3V
 - Verify pull-up resistors are installed
 
-**Display segments dark?**  
+**Display segments dark?**
+
 - Check 74HCT238 decoder (U4) control lines (A0, A1, A2)
 - Verify 74HCT244 output buffers have +5V supply
 - Check segment data lines with multimeter for continuity
 - Confirm LED display modules have adequate +5V supply
 
 **Serial output corrupted?**
+
 - Verify baud rate set to 9600 baud
 - Check USB cable integrity
 - Slow down command entry rate

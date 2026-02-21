@@ -91,7 +91,7 @@ Before applying power to the circuit, perform the following checks:
 
 1. **Power Supply**: Connect external 12V power supply to connector **J3** (2-pin power input)
    - Pin 1: +12V
-   - Pin 2: GND1.
+   - Pin 2: GND
 2. **SENSOR INPUT**: Connect to connector **J1** (3-pin sensor input)
    - Pin 1: +12V reference (internal supply to sensors)
    - Pin 2: Lane 1 digital output (to be stimulated with optical sensor)
@@ -431,21 +431,25 @@ After this peripheral test passes:
 ## Appendix C: Troubleshooting Guide
 
 **No +12V output?**
+
 - Check main input connector J3 polarity
 - Verify input fuse protection
 - Check power supply ground connection
 
 **Low 5V or 3.3V voltage?**
+
 - Verify regulator ICs are soldered and present
 - Check input supply is present
 - Measure for excessive current draw (short circuit)
 
 **Sensor inputs not responding?**
+
 - Check U3 (74LVC2G14) Schmitt trigger IC for power and ground
 - Verify pull-up resistor connections
 - Test with multimeter: expected 3.3V HIGH, 0V LOW when stimulated
 
 **Display outputs shorted?**
+
 - Check for solder bridges between segment data lines
 - Verify 74HCT244 buffer IC connections
 - Re-flow any problematic pad connections
