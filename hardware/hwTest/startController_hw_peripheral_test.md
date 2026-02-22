@@ -54,17 +54,19 @@ Connect all external peripherals to the Start Controller board as follows:
 1. **Power Supply**: Connect external 12V power supply to connector **J6** (2-pin power input)
    - Pin 1: +12V
    - Pin 2: GND
-2. **Gate Assembly**: Connect to connector **J2** (3-pin gate control)
+2. **Gate Assembly**: Connect to connector **J2** (5-pin gate control)
    - Pin 1: +5V (enables electromagnet power)
    - Pin 2: GND
-   - Pin 3: Solenoid discharge
-3. **Left Starting Lights**: Connect to connector **J4** (3-pin light output)
-4. **Right Starting Lights**: Connect to connector **J3** (3-pin light output)
+   - Pin 3: Gate Right control output
+   - Pin 4: Gate Left control output
+   - Pin 5: Solenoid control output
+3. **Left Starting Lights**: Connect to connector **J4** (7-pin light output)
+4. **Right Starting Lights**: Connect to connector **J3** (7-pin light output)
 5. **Button Triggers**: Connect to connectors **J7** through **J10** (2-pin each)
-   - **J7**: Start trigger
-   - **J8**: Mode trigger
-   - **J9**: Left trigger
-   - **J10**: Right trigger
+   - **J7**: Left Trigger
+   - **J8**: Mode Trigger
+   - **J9**: Start Trigger
+   - **J10**: Right Trigger
    - Each button: one terminal to signal pin, other terminal to GND
 
 ---
@@ -76,17 +78,17 @@ Connect all external peripherals to the Start Controller board as follows:
 **Objective**: Verify all voltage regulators produce output within specification.
 **Test Steps**:
 
-1. **SAFETY CHECKPOINT**: Before applyihg power, confirm
+1. **SAFETY CHECKPOINT**: Before applying power, confirm
    - All connectors are properly seated
    - No visible solder bridges or defects
-2. Turn **ON** 12V power supply output.  Immeadiately check and observe for:
+2. Turn **ON** 12V power supply output.  Immediately check and observe for:
    - Unusual noises or smells
    - Evidence of arcing or overheating
-   - Dicoloroation or odor
+   - Discoloration or odor
 3. Place multimeter ground probe on J12 pin 14 (GND reference)
 4. Measure voltage on +12V rail:
    - Verify +12V LED indication is illuminated (D17)
-   - Place test probe on J6 pin 1
+   - Place test probe on J12 pin 15
    - Expected reading: **12.0V**, actual reading: _______ V
 5. Measure voltage on +5V rail:
    - Verify +5V LED indication is illuminated (D19)
@@ -263,10 +265,12 @@ Connect all external peripherals to the Start Controller board as follows:
 
 ## Appendix A: Connector Pinout Quick Reference
 
-| Connector | Purpose | Pin 1 | Pin 2 | Pin 3 | Pin 4 | Pin 5| Pin 6 | Pin 7 | Pin 8 |
-| --- | --- | --- | --- | --- | --- |
+### External Connectors
+
+| Connector | Purpose | Pin 1 | Pin 2 | Pin 3 | Pin 4 | Pin 5 | Pin 6 | Pin 7 | Pin 8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **J1** | RFID L&R | +3.3V | GND | RST | SCK | MOSI | MISO | CS L | CS R |
-| **J2** | Gate Control | +5V | +12V | Gate R Rtn | Gate L Rtn | Gate Reset Rtn | | | |
+| **J2** | Gate Control | +5V | +12V | Gate R | Gate L | Gate Reset | | | |
 | **J3** | Tree Left | +12V | Blue | Y3 | Y2 | Y1 | Green | Red | |
 | **J4** | Tree Right | +12V | Blue | Y3 | Y2 | Y1 | Green | Red | |
 | **J5** | Comm | RXD | TXD | GND | | | | | |
@@ -276,6 +280,59 @@ Connect all external peripherals to the Start Controller board as follows:
 | **J9** | Trig Start | TrigS | GND | | | | | | |
 | **J10** | Trig Right | TrigR | GND | | | | | | |
 
+### J12 Arduino Header Connections (Analog)
+
+| Pin | Purpose | Arduino Pin | Notes |
+| --- | --- | --- | --- |
+| 1 | SCK | D13 | RFID SPI Clock |
+| 2 | +3.3V | +3.3V | Arduino-generated 3.3V reference (not for power) |
+| 3 | N/C | AREF | Not used |
+| 4 | Gate R | A0/D14 | Gate Right control output |
+| 5 | Gate L | A1/D15 | Gate Left control output |
+| 6 | Gate Reset | A2/D16 | Solenoid control output |
+| 7 | N/C | A3/D17 | Not used |
+| 8 | TrigL | A4/D18/SDA | Left trigger input |
+| 9 | TrigR | A5/D19/SCL | Right trigger input |
+| 10 | Mode | A6 | Mode trigger input |
+| 11 | TrigS | A7 | Start trigger input |
+| 12 | N/C | +5VDC | Arduino-generated 5V reference (not for power) |
+| 13 | Startup Delay | ~Reset | Reset low |
+| 14 | GND | GND | Power Ground |
+| 15 | +12V | +12V | Power Input |
+
+### J13 Arduino Header Connections (Digital)
+
+| Pin | Purpose | Arduino Pin | Notes |
+| --- | --- | --- | --- |
+| 1 | MISO | D12/MISO | RFID MISO |
+| 2 | MOSI | D11/MOSI | RFID MOSI |
+| 3 | CS/R | D10/SS | RFID Control Select Right |
+| 4 | CS/L | D9 | RFID Control Select Left |
+| 5 | RST | D8 | RFID Reset |
+| 6 | N/C | D7 | Not used |
+| 7 | N/C | D6 | Not used |
+| 8 | N/C | D5 | Not used |
+| 9 | clock | D4 | Lights shift register clock |
+| 10 | latch | D3 | Lights shift register latch |
+| 11 | data | D2 | Lights shift register data |
+| 12 | GND | GND | Power Ground |
+| 13 | N/C | ~Reset | Reset low |
+| 14 | RDX | D0/Rx | Serial receive (Finish Controller) |
+| 15 | TXD | D1/Tx | Serial transmit (Finish Controller) |
+
 ## Appendix B: Troubleshooting Guide
 
-TBD
+1. Button presses not registering
+   - Verify +5V on J12 pin 14 (74HC7014 power)
+   - Check button continuity at J7-J10 connectors
+   - Check 74HC7014 IC orientation (pin 1 corner marking)
+   - Pattern: If ALL buttons fail → logic IC power issue; if ONE button fails → check mechanical switch
+2. Gate electromagnets won't energize
+   - Confirm +12V present at J2 pin 2
+   - Verify jumper test at J12 pins 4 & 5 produces 2.7-5V (shows gate driver FET switching)
+   - Check D2/D3 diodes (free-wheel) for shorts
+   - Pattern: No voltage at gate output → MOSFET failed or gate driver IC issue
+3. Christmas tree lights dim or stay partially on
+   - Confirm all 12 bulbs can be toggled individually (step 5.4)
+   - Check 74HC595 shift register CLK/LATCH/DATA lines for continuity
+   - Pattern: Some bulbs always off → shift register bit stuck; all bulbs dimly lit → grounding issue
