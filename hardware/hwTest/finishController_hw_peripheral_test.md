@@ -204,16 +204,38 @@ MCD14543 digit demultiplexing and segment drivers are functional
 
 ## Appendix A: Connector Pinout Quick Reference
 
-### External Connectors
+### Board Layout
 
-| Connector | Purpose | Pin 1 | Pin 2 | Pin 3 | Pin 4 | Pin 5 | Pin 6 | Pin 7 | Pin 8 | Pin 9 | Pin 10 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **J1** | Sensor Input | +12V | Lane 1 | Lane 2 | GND | | | | | | |
-| **J2** | Serial | RXD | TXD | GND | | | | | | | |
-| **J3** | Power | +12V | GND | | | | | | | | |
-| **J4** | Right Display | AD0 | AD3 | AD1 | AD2 | Decimal | Tens | Ones | Tenths | Hundredths | Thousandths |
-| **J5** | Left Display | AD0 | AD3 | AD1 | AD2 | Decimal | Tens | Ones | Tenths | Hundredths | Thousandths |
-| **J6** | Display Power | +12V | GND | GND | +5V | | | | | | |
+```text
+Top Edge                 +5V GND GND +12V      GND L2 L1 +12V
+                           4   3   2   1         4   3  2  1
+                 +------------------------------------------+
+                 |          J6 (Dsply Pwr)      J1 (Sensors)|
+                 |        4-pin Molex Nano     4-pin JST XH |
+                 |                                          |
+         +12V 1--| J3 (12V Pwr)                             |
+          GND 2--| 2-pin Molex Nano                         |
+                 |                                          |
+                 | J8 (Analog) 15-pin Arduino               |
+                 |   15 14 13 12 11 10 9 8 7 6 5 4 3 2 1    |
+                 |                                          |
+           Tx 1--| J2 (Comm)                                |
+           Rx 2--| 3-pin JST XH                             |
+          GND 3--|                                          |
+                 |   15 14 13 12 11 10 9 8 7 6 5 4 3 2 1    |
+          AD0 1--|  J9 (Digital) 15-pin Arduino             |--10 Time2_Thousandths
+          AD3 2--|                                          |--9  Time2_Hundredths
+          AD1 3--|                                          |--8  Time2_Tenths
+          AD2 4--| J5 (Time1)                    J4 (Time2) |--7  Time2_Ones
+      Decimal 5--| 10-pin JST XH              10-pin JST XH |--6  Time2_Tens
+         Tens 6--|                                          |--5  Decimal_Point
+   Time1_Ones 7--|                                          |--4  AD2
+       Tenths 8--|                                          |--3  AD1
+   Hundredths 9--|                                          |--2  AD3
+ Thousandths 10--|                                          |--1  AD0
+                 +------------------------------------------+
+Bottom Edge
+```
 
 ### J8 Arduino Header Connections (Analog)
 
