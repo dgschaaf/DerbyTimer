@@ -17,7 +17,7 @@
 #define foul_both		0b0011
 
 // **************** ENUMERATIONS ****************
-enum raceState uint8_t { 
+enum raceState : uint8_t { 
 	RACE_IDLE,
 	RACE_STAGING,
 	RACE_COUNTDOWN,
@@ -26,7 +26,7 @@ enum raceState uint8_t {
 	RACE_TEST
 	};
 	
-enum countdownState uint8_t {
+enum countdownState : uint8_t {
 	CD_IDLE,
 	CD_STAGED,
 	CD_Y3,
@@ -35,7 +35,7 @@ enum countdownState uint8_t {
 	CD_GO 
 	};
 
-enum raceMode uint8_t {
+enum raceMode : uint8_t {
 	MODE_GATEDROP,
 	MODE_REACTION,
 	MODE_PRO,
@@ -43,13 +43,13 @@ enum raceMode uint8_t {
 	};
 
 // **************** Global Race Variables ****************
-extern unsigned long leftReactionTime;		// Reaction time for left track
-extern unsigned long rightReactionTime;		// Reaction time for right track
+//extern unsigned long leftReactionTime;		// Reaction time for left track
+//extern unsigned long rightReactionTime;		// Reaction time for right track
 
-extern unsigned long raceStartTime;			// Log the start time of the race
-extern unsigned long leftStartTime;			// Log the start time of the left track
-extern unsigned long rightStartTime;		// Log the start time of the right track
+//extern unsigned long raceStartTime;			// Log the start time of the race
+//extern unsigned long leftStartTime;			// Log the start time of the left track
+//extern unsigned long rightStartTime;		// Log the start time of the right track
 
-extern bool leftFoul;						// Log foul status of left track
-extern bool rightFoul;						// Log foul status of right track	
+//extern bool leftFoul;						// Log foul status of left track
+//extern bool rightFoul;						// Log foul status of right track	
 #endif

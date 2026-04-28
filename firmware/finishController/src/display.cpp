@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "display.h"
 
 // -------------------------------------------
@@ -101,7 +102,7 @@ void updateDisplay(uint32_t timeUs, bool isLeft) {
     digitalWrite(PIN_LANE2, HIGH);
 }
 
-static void writeBlankDigit(uint8_t idx, bool isLeft)
+static void writeBlankDigit(uint8_t idx)
 {
     // Disable decimal
     digitalWrite(PIN_DECIMAL, LOW);
@@ -132,7 +133,7 @@ void clearDisplay(bool isLeft)
     }
 
     for (uint8_t i = 0; i < NUM_DIGITS; i++) {
-        writeBlankDigit(i, isLeft);
+        writeBlankDigit(i);
     }
 
     // Disable both

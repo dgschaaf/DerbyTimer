@@ -1,10 +1,10 @@
-#include "sensors.h"
 #include <Arduino.h>
+#include "sensors.h"
 
 // Global configuration.  Adjust leftPin/rightPin for your board.
 const SensorConfig config = {
-  .leftPin       = 4,         // sensor pin for left lane
-  .rightPin      = 5,         // sensor pin for right lane
+  .leftPin       = A1,         // sensor pin for left lane
+  .rightPin      = A0,         // sensor pin for right lane
   .activeHigh    = true,      // sensors pull the pin high when the beam is broken
   .minRaceTimeUs = 500000,    // ignore triggers within 0.5 seconds of race start
   .maxRaceTimeUs = 10000000   // auto complete race after 10 seconds

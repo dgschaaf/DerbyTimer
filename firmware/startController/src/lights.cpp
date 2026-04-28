@@ -1,4 +1,6 @@
 #include "lights.h"
+#include "globals.h"
+#include <Arduino.h>
 
 // Shift register pins
 static const byte dataPin 		= 2;

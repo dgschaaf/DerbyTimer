@@ -1,12 +1,32 @@
-#include "serialComm.h"
 #include <Arduino.h>
+#include "serialComm.h"
+#include "globals.h"
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 
 
 serialMsgID lastAckedMsgID			= MSG_NULL;	// initialize to the null message
 serialMsgID lastNackedMsgID			= MSG_NULL;	// initialize to the null message
+serialMsgID rxID					= MSG_NULL;	// initialize to the null message
+errCode lastErrorCode				= err_NULL;	// initialize to the null error
 static const uint8_t maxRetries 	= 3;		// number of tx retries allowed
+
+// Initialize all external varaiables
+raceMode rxMode           			= MODE_GATEDROP;
+raceState rxState         			= RACE_IDLE;
+bool rxRaceStart          			= false;
+bool rxLeftStart          			= false;
+bool rxRightStart         			= false;
+bool rxLeftFoul           			= false;
+bool rxRightFoul          			= false;
+bool rxLeftWin            			= false;
+bool rxRightWin           			= false;
+bool rxTie                			= false;
+bool rxDisplayAdvanceFlag			= false;
+int32_t rxLeftReactionTime  		= -1;
+int32_t rxRightReactionTime 		= -1;
+//uint8_t rxLeftID[serialUIDLength] 	= {0};
+//uint8_t rxRightID[serialUIDLength]	= {0};
 
 struct TxTracker {
 	txStatus status;	
@@ -35,7 +55,7 @@ bool rxSerial() {
 	// Peek at the ID and determine if the entire payload has been received before processing
 	if (available < (1 + expectedLen)) return false;
 
-	serialMsgID rxID = (serialMsgID)Serial.read();  // Read 1-byte message ID
+	rxID = (serialMsgID)Serial.read();  // Read 1-byte message ID
 
 	switch (rxID) {
 		case MSG_RACE_MODE: {
@@ -50,20 +70,6 @@ bool rxSerial() {
 			if (Serial.available() >= 1) {
 				uint8_t newState = Serial.read();
 				rxState = newState;  // Update your global state
-				txAck(rxID);
-			}
-			break;
-		}
-		case MSG_LEFT_CAR_ID:
-		case MSG_RIGHT_CAR_ID: {
-			if (Serial.available() >= serialUIDLength) {
-				uint8_t uid[serialUIDLength];
-				Serial.readBytes(uid, serialUIDLength);
-				if (rxID == MSG_LEFT_CAR_ID) {
-					memcpy(rxLeftID, uid, serialUIDLength);  // leftCarID must be uint8_t[4]
-				} else {
-					memcpy(rxRightID, uid, serialUIDLength);
-				}
 				txAck(rxID);
 			}
 			break;
@@ -136,7 +142,7 @@ bool rxSerial() {
 		}
 		case MSG_ERROR: {
 			if (Serial.available() >= 1) {
-				errCode lastErrorCode = (errCode)Serial.read(); // error code for logging
+				lastErrorCode = (errCode)Serial.read(); // error code for logging
 			}
 			break;
 		}
@@ -195,36 +201,6 @@ txStatus txRaceState(raceState newState){
 			}
 			sendMessage(MSG_RACE_STATE, &payload, 1);	// send payload	
 			state.sendTime 	= now;						// timestamp transmission
-			state.retries++;							// increment retries
-			return state.status 	= TX_SENT;
-	}
-}
-
-txStatus txCarID(uint8_t* uid, bool isLeft){
-	serialMsgID msgID;
-	if (isLeft){
-		msgID 				= MSG_LEFT_CAR_ID;			// set message ID
-	} else {
-		msgID 				= MSG_RIGHT_CAR_ID;			// set message ID
-	}
-	auto& state 			= txState[msgID];
-	unsigned long now 		= millis();
-	switch (state.status) {
-		case TX_SENT:
-			if (now - state.sendTime >= txTimeout){		// check if response waiting exceeded
-				return state.status 		= TX_TIMEOUT;
-			}
-		case TX_ACKED:
-		case TX_FAILED:
-		case TX_TIMEOUT:
-			return state.status;
-		case TX_NONE:	
-		case TX_NACKED:
-			if (state.retries > maxRetries){			// check if retries exceeded
-				return state.status = TX_FAILED;
-			}
-			sendMessage(msgID, uid, serialUIDLength);	// send payload	
-			state.sendTime	= now;						// timestamp transmission
 			state.retries++;							// increment retries
 			return state.status 	= TX_SENT;
 	}
@@ -414,10 +390,6 @@ uint8_t getExpectedPayloadLength(serialMsgID id) {
 		case MSG_NACK:
 		case MSG_ERROR:
 			return 1;
-
-		case MSG_LEFT_CAR_ID:
-		case MSG_RIGHT_CAR_ID:
-			return serialUIDLength;  // raw UID
 
 		case MSG_LEFT_REACT:
 		case MSG_RIGHT_REACT:

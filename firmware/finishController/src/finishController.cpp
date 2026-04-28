@@ -1,14 +1,98 @@
-#include "sensors.h"
-#include "globals.h"
-#include "serialComm.h"
-//#include "btComm.h"
-//#include "display.h"
+/*
+ * Pinewood Derby Track Finish Controller
+ * Version: 1.0
+ * Author: Darren Schaaf
+ * Date December 2025
+ * Compile: Arduino IDE 1.8+ or PlatformIO
+ * Board: Arduino Nano 33 BLE
+ * Libraries Required:
+ */
 
-bool needReact 		= false;		// Flag to indicate if reaction time is needed
+#include <Arduino.h>
+#include "finishController.h"
+#include "display.h"
+#include "sensors.h"
+#include "serialComm.h"
+#include "globals.h"
+
+struct stateMachine {
+	raceState current;
+	raceState target;
+	bool entry;
+	bool exit;
+	bool allowedTransition(raceState next) {
+		// Allowed transitions table (FROM x TO)
+		static constexpr bool allowed[6][6] = {
+		/* FROM\TO:  IDLE STAG CNTD RACE CMPL TEST */
+ 		/*IDLE*/     {0,   1,   0,   0,   0,   1},
+ 		/*STAGING*/  {0,   0,   1,   0,   0,   0},
+ 		/*COUNTDOWN*/{0,   0,   0,   1,   0,   0},
+ 		/*RACING*/   {0,   0,   0,   0,   1,   0},
+ 		/*COMPLETE*/ {1,   0,   0,   0,   0,   0},
+ 		/*TEST*/     {1,   0,   0,   0,   0,   0}
+		};
+
+		return allowed[current][next];
+	};
+
+    void selfTransition(raceState newState) {
+		// 1. Reject illegal transitions
+        if (!allowedTransition(newState)) {
+			return;
+		}
+
+		// 2. Check if already in target state
+        if (current == newState) {
+            return;
+        }
+
+		// 3. Set intention to transition
+		target = newState;
+
+		// 4. Attempt coordinated change
+		txStatus result	= txRaceState(target);
+		switch (result) {
+			
+			case TX_ACKED:
+				// Transition has been confirmed, now commit
+				entry 	= true;		// next loop: run entry logic
+				current	= target;   // commit new state
+				exit 	= true;   		// run exit logic
+				resetTxState(MSG_RACE_STATE);
+				return;
+
+			case TX_TIMEOUT:
+			case TX_FAILED:
+				// Transition failed, revert intention and abandon transition
+				target	= current;
+				resetTxState(MSG_RACE_STATE);
+				return;
+
+			default:
+				// Still TX_SENT or waiting for ACK
+				return;
+		}
+
+        return;  // Already in target state
+    }
+
+    void rxTransition(raceState newState) {
+		// 1. Check if already in target state
+        if (current == newState) {
+            return;
+        }
+
+		// 2. Commit local state change
+		target 			= newState;
+		current			= newState;
+		entry  			= true;
+		exit   			= true;
+		return;
+	}
+};
 
 // Results structure for a lane.  Times are stored in microseconds
 struct raceResults {
-    uint8_t		carID;			// 4‑byte UID
 	bool		left;			// indicates track left(true) or right(false);
     bool		foul;			// whether a foul occurred (false start)
     bool		winner;			// true if this lane won the race
@@ -17,48 +101,7 @@ struct raceResults {
     uint32_t	reactionTimeUs;	// reaction time measured at start
 };
 
-struct StateMachine {
-	raceState current;
-	raceState target;
-	bool entry;
-	bool exit;
-	// Returns true when transition is complete
-    bool transition(raceState newState) {
-		//**************** How might we control this to only transition to allowed states?*********************
-		if (target != newState) {
-			target = newState;  // Set intention
-		}
-        if (current != target) {
-			// Try to coordinate transition
-			txStatus result = txRaceState(target);
-			switch (result) {
-				case TX_ACKED:
-					entry = true;    // Exit current state
-                    current = target;   // Commit transition
-                    exit = true;   // Enter new state
-                    resetTxState(MSG_RACE_STATE);
-                    return true;
-                case TX_TIMEOUT:
-                case TX_FAILED:
-                    target = current;   // Abandon transition
-                    resetTxState(MSG_RACE_STATE);
-                    // Log error or flash lights
-                    return false;
-                default:
-                    return false;  // Still pending
-            }
-        }
-        return true;  // Already in target state
-    }
-    // Handle unsolicited state changes from rxSerial
-    void rxTransition(raceState rxState) {
-        if (rxState != current) {
-			transition(rxState);
-        }
-    }	
-};
-
-struct RaceTimingData {
+struct raceTimingData {
     uint32_t raceStartUs;
     uint32_t leftTimeUs;
     uint32_t rightTimeUs;
@@ -66,111 +109,139 @@ struct RaceTimingData {
     bool rightRecorded;
 };
 
-// Static instances for left and right lanes; lifetime extends over loops.
-static raceResults leftResults	= {0, true, false, false, 0, 0, 0};
-static raceResults rightResults	= {0, false, false, false, 0, 0, 0};
-static StateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
-static RaceTimingData race		= {0, 0, 0, false, false};
+// State flags instance
+bool needReact 			= false;		// Reaction time is needed
+bool txWinPending		= false;		// Winner transmission is pending
 
-void setup() {
+
+// Static instances for left and right lanes; lifetime extends over loops.
+static raceResults leftResults	= {true, false, false, 0, 0, 0};
+static raceResults rightResults	= {false, false, false, 0, 0, 0};
+static raceTimingData race		= {0, 0, 0, false, false};
+
+// State machine instance
+static stateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
+static raceMode currentMode;
+
+// Internal helpers (file-local)
+static void handleSensors();
+static void handleRxReaction();
+static void computeRaceTimes();
+static void transmitWinnerToSC();
+static void displayCarTimes();
+static void displayReactionTimes();
+
+
+void finishControllerSetup() {
 	setupSerial();
 	setupSensors();
-	setupDisplay();
-	//setupBT();
-	
+	setupDisplay();	
+
 	// Start in idle state.  These variables are declared in globals.h.
-    stm.current = RACE_IDLE;
-    stm.target  = RACE_IDLE;
-    currentMode  = MODE_GATEDROP;
-    targetMode   = MODE_GATEDROP;
+    stm.current					= RACE_IDLE;
+    stm.target					= RACE_IDLE;
+    currentMode 				= MODE_GATEDROP;
 }
 
-void loop() {
+void finishControllerLoop() {
 	rxSerial();
 	switch(stm.current) {
 		case RACE_IDLE:
 			if(stm.entry){
-				stm.entry = false;
+				stm.entry 			= false;
 				clearDisplay(true);				// clear display (left)
 				clearDisplay(false);			// clear display (right))
 			}
-			if (targetMode != currentMode){
-				handleModeTransition(targetMode);			// manage mode transition
-				// tx mode change to BLE raceManager
-				// what if rx race mode from BLE raceManager
+
+			if (rxMode != currentMode){
+				currentMode 		= rxMode;	// update mode from serial, source will validate
+				// notifyBLEMode(currentMode);	// Future - notify mode change over BLE
 			}
-			// can initiate state change if raceManager requests test mode over BLE
-			// stm.transition(stm.target);						// transitions state if updated target
-			stm.rxTransition(rxState);						// transitions state if received target
+			stm.rxTransition(rxState);			// transitions state if received via serial
 			if(stm.exit){
-				stm.exit = false;
-				// tx state change to BLE raceManager
+				stm.exit 			= false;
 			}
+
 			break;
 			
 		case RACE_STAGING:
 			if(stm.entry){
-				stm.entry = false;
+				stm.entry 			= false;
 			}
-			handleCarID();						// manage handoff of car ID between startController and raceManager
-			stm.rxTransition(rxState);						// transitions state if received target
+			stm.rxTransition(rxState);			// transitions state if received via serial
 			if(stm.exit){
-				stm.exit = false;
+				stm.exit 			= false;
 			}
+
 			break;
 			
 		case RACE_COUNTDOWN:
 			if(stm.entry){
-				stm.entry 	= false;
-				rxRaceStart	= false;
+				stm.entry 			= false;
+				rxRaceStart			= false;
+				race.raceStartUs	= 0;
 			}
+
 			if (rxRaceStart && (race.raceStartUs == 0)) {
 				race.raceStartUs	= micros();
 				armSensors(race.raceStartUs);
 			}
-			stm.rxTransition(rxState);						// transitions state if received target	
+			stm.rxTransition(rxState);						// transitions state if received via serial	
 			if(stm.exit){
-				stm.exit = false;		
+				stm.exit 			= false;		
 			}
+
 			break;
 			
 		case RACE_RACING:
 			if(stm.entry){
 				// Reset recording flags and times
-				race.leftRecorded	= false;
-				race.rightRecorded	= false;
+				race.leftRecorded		= false;
+				race.rightRecorded		= false;
 				race.leftTimeUs			= 0;
 				race.rightTimeUs		= 0;
-				stm.entry = false;
+				rxRightReactionTime		= -1;
+				rxLeftReactionTime		= -1;
+				rxLeftFoul				= false;
+				rxRightFoul				= false;
+				stm.entry 				= false;
 				// Only arm if not already armed from COUNTDOWN state
-				if (race.raceStartUs == 0){
-					race.raceStartUs = micros();
+				if (race.raceStartUs	== 0){
+					race.raceStartUs 	= micros();
 					armSensors(race.raceStartUs);
 				}
 			}
+
 			handleSensors();					// check for interrupt and record finish time
-			handleRxResults();					// store results from rxSerial
-			if (stm.target != stm.current){
-				handleStateTransition(stm.target);			// manage state transition
+			handleRxReaction();					// store reactio and foul from rxSerial
+
+			if (race.leftRecorded && race.rightRecorded) {
+				stm.target	= RACE_COMPLETE;	// initiate state transition when both sensors recorded
 			}
+			stm.selfTransition(stm.target);			// transitions state if updated target
 			
 			if(stm.exit){
-				stm.exit = false;	
+				stm.exit 				= false;	
 				disarmSensors();	
 			}
 			break;
 			
-		case RACE_COMPLETION:
+		case RACE_COMPLETE:
 			if(stm.entry){
 				needReact				= false;	// clear flag for safety
 				rxDisplayAdvanceFlag	= false;	// clear flag for safety
+				txWinPending			= true;		// set winner transmission flag
 				computeRaceTimes();					// calculate and compile race times, reaction times, and winner
-				transmitWinnerToSC();				// send winner over serial to startController
-				//transmitResultsToRM();			// send results over BT to raceManager
 				displayCarTimes();					// push car times to display
-				stm.entry 					= false;	// done with stm.entry tasks
+				stm.entry 				= false;	// done with stm.entry tasks
 			}
+
+			if (txWinPending){
+				transmitWinnerToSC();				// send winner over serial to startController
+			}
+
 			if(rxDisplayAdvanceFlag) {
+				// When startControll signals to advance display (start trigger)
 				if(needReact){
 					displayReactionTimes();
 				} else {
@@ -178,28 +249,27 @@ void loop() {
 				}
 				rxDisplayAdvanceFlag	= false;
 			}
-			if (stm.target != stm.current){
-				handleStateTransition(stm.target);			// manage state transition
-			}
+			stm.selfTransition(stm.target);				// transitions state if updated target
+
 			if(stm.exit){
-				stm.exit = false;
+				stm.exit 				= false;
 				// carID, left, foul, winner, carTimeUs, raceTimeUs, reactionTimeUs
-				leftResults		= {0,	true,	false,	false,	0,	0,	0};		// reset left results struct
-				rightResults	= {0,	false,	false,	false,	0,	0,	0};		// reset right results struct
+				leftResults		= {true,	false,	false,	0,	0,	0};		// reset left results struct
+				rightResults	= {false,	false,	false,	0,	0,	0};		// reset right results struct
 			}
 			break;
 			
 		case RACE_TEST:
 			// currently unused, just transition back to idle
 			if(stm.entry){
-				stm.target = RACE_IDLE;
-				stm.entry = false;
+				stm.target 		= RACE_IDLE;
+				stm.entry 		= false;
 			}
-			if (stm.target != stm.current){
-				handleStateTransition(stm.target);			// manage state transition
-			}
+			
+			stm.selfTransition(stm.target);				// transitions state if updated target
+
 			if(stm.exit){
-				stm.exit = false;
+				stm.exit 		= false;
 			}
 			break;
 	}	
@@ -212,37 +282,10 @@ void loop() {
  /* =========================================================================
  *                        RACE_STAGING HELPER FUNCTIONS
  * ========================================================================= */
-static void handleCarID() {
-	// manage handoff of car ID between startController and raceManager
-	if (rxLeftID != 0){
-		// leftResults.carID = rxLeftID; 	// update onboard ID
-		// rxLeftID = 0; 					// clear serial received ID
-		// (post left ID to BLE) 			// send to raceManager
-	}
-	if (rxRightID !=0) {
-		// rightResults.carID = rxRightID;	// update onboard ID
-		// rxRightID = 0;					// clear serial received ID
-		// (post right ID to BLE)			// send to raceManager
-	}
-	if (btLeftID !=0){
-		// transmit over serial left ID 	// send to startController
-		// btLeftID = 0; 					// clear BLE received ID
-		// dont store the value, raceManager is only used for confirmation and not data source
-		
-	}
-	if (btRightID !=0){
-		// transmit over serial right ID 	// send to startController
-		// btRightID = 0; 					// clear BLE received ID
-		// dont store the value, raceManager is only used for confirmation and not data source
-	}
-}
 
 /* =========================================================================
  *                        RACE_COUNTDOWN HELPER FUNCTIONS
  * ========================================================================= */
-
-
-
 
 /* =========================================================================
  *                        RACE_RACING HELPER FUNCTIONS
@@ -274,13 +317,9 @@ void handleSensors() {
 			race.rightRecorded 	= true;
 		}
     }
-	
-	if (race.leftRecorded && race.rightRecorded) {
-		stm.target			= RACE_COMPLETION;			// initiate state transition when both sensors recorded
-	}
 }
 
-void handleRxResults() {
+void handleRxReaction() {
 	if (rxLeftReactionTime >= 0) {
 		leftResults.reactionTimeUs 	= (uint32_t)rxLeftReactionTime;
 		rxLeftReactionTime 			= -1;		// reset flag
@@ -301,7 +340,7 @@ void handleRxResults() {
 }
 
 /* =========================================================================
- *                        RACE_COMPLETION HELPER FUNCTIONS
+ *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
 void computeRaceTimes() {
 	// race time is the raw time from GO to FINISH
@@ -328,31 +367,25 @@ void transmitWinnerToSC(){
 		// Neither flagged winner – treat as tie.
 		winnerMask |= 0b0100;
 	}
-	static bool txWin = true;
-	while (txWin) {
-		txStatus win = txWinner(winnerMask);
-		switch (win) {
-			case TX_ACKED:										
-				txWin 		= false;						// winner transmission no longer pending
-				resetTxState(MSG_WINNER);
-				break;
-			case TX_TIMEOUT:
-			case TX_FAILED:
-				txWin 		= false;						// winner transmission failed
-				resetTxState(MSG_WINNER);					// reset transmit message
-				// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
-				// future: log / transmit state transition error
-				break;
-			case TX_NONE:
-			case TX_SENT:
-			case TX_NACKED:
-			default:
-				break;
-		}
+	txStatus win = txWinner(winnerMask);
+	switch (win) {
+		case TX_ACKED:										
+			txWinPending = false;						// winner transmission no longer pending
+			resetTxState(MSG_WINNER);
+			break;
+		case TX_TIMEOUT:
+		case TX_FAILED:
+			txWinPending = false;						// winner transmission failed
+			resetTxState(MSG_WINNER);					// reset transmit message
+			// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
+			// future: log / transmit state transition error
+			break;
+		case TX_NONE:
+		case TX_SENT:
+		case TX_NACKED:
+		default:
+			break;
 	}
-}
-
-void transmitResultsToRM(){
 }
 
 static void displayCarTimes() {	
@@ -372,13 +405,3 @@ static void displayReactionTimes() {
 /* =========================================================================
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
-void handleModeTransition(raceMode target) {
-	// coordinate mode transition to COMPLETION with raceManager over BT (protocol TBD)
-	// coordinate mode transition to COMPLETION with startController over Serial
-	
-	// MSG_RACE_MODE  --> rxMode
-		txStatus md = txRaceMode(target);
-		if (md == TX_ACKED) {
-			currentMode	= target;
-	}
-}

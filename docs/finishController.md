@@ -116,9 +116,7 @@ Refer to serialComm.h for additional helpers (e.g. sending reaction times, foul 
 
 ### Communication with Race Manager (BLE)
 
-
-
-The Nano 33 BLE includes a Nordic BLE radio that can send race results to a Raspberry Pi. The BLE protocol and characteristic layout are not yet defined. When implemented, race results (*carTimeUs*, *raceTimeUs*, *reactionTimeUs*, *foul*, *carID*, etc.) should be transmitted once the race completes. Consider using BLE notifications to push results to a connected central. Add functions in finishController.cpp (e.g. *txResultsToManager(const RaceResults\&)*) and call them after computing results in *RACE\_RACING* or *RACE\_COMPLETE*.
+The Nano 33 BLE includes a Nordic BLE radio that can send race results to a Raspberry Pi. The BLE protocol and characteristic layout are not yet defined. When implemented, race results (*carTimeUs*, *raceTimeUs*, *reactionTimeUs*, *foul*, etc.) should be transmitted once the race completes. Consider using BLE notifications to push results to a connected central. Add functions in finishController.cpp (e.g. *txResultsToManager(const RaceResults\&)*) and call them after computing results in *RACE\_RACING* or *RACE\_COMPLETE*.
 
 
 
@@ -126,7 +124,6 @@ The Nano 33 BLE includes a Nordic BLE radio that can send race results to a Ra
 
 * **Confirm wiring and timings** – Verify the mapping of the decimal flags and BCD bits on your custom shield. Adjust the constant definitions and *buildPattern*() logic accordingly. Use an oscilloscope to ensure the latch pulses meet the timing requirements of the **74HC595**, **74HC137** and **MC14543**.
 * **Add demultiplexer control** – If the **74HC137** requires a latch enable or chip enable toggle separate from the **74HC595** latch, add additional output pins and drive them in *shiftOut16*(). The **KiCad** schematic suggests ~LE, ~E1 and E2 inputs on the demux that may need to be driven high/low at appropriate times.
-* **Integrate RFID** – The *RaceResults* structure reserves a *carID* field for a 4‑byte RFID tag. Extend *serialComm* to send and receive car IDs and populate this field when available.
 * **Implement BLE** – Define a BLE GATT service to transmit race results and, if desired, receive configuration commands from the race manager. Ensure that BLE communication does not block timing critical sections.
 * **Unify global variables** – Several variables in *globals.h* and *serialComm.h* overlap in purpose (e.g. foul flags). Consolidate these to avoid confusion. Also ensure that all enumerations in *serialComm.h* have trailing commas to avoid compilation errors.
 
