@@ -236,7 +236,7 @@ static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev
 uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart);
 static void handleTrackTriggers();
 static void handleDisplayAdvance();
-bool handleResultsTx(int n)
+bool handleResultsTx(serialMsgID messageID);
 
 void startControllerSetup(){
 	setupSerial();
@@ -318,7 +318,7 @@ void startControllerLoop(){
 
 			cdState = tickCountdownState(mdm.current, cdState);			// Tick the countdown state.
 			if (cdState == CD_GO){
-				handleCountdownGoActions(cdState, prevCDState, tNow);	// When GO is reached, start race and transition state.
+				handleCountdownGoActions(cdState, prevCdState, tNow);	// When GO is reached, start race and transition state.
 			}
 			if(cdState != prevCdState){
 				byte cdLights	= buildLightConfig(cdState, raceResults.leftFoul, raceResults.rightFoul, mdm.current);	// set new light pattern
@@ -375,7 +375,7 @@ void startControllerLoop(){
 				}
 			}
 
-			if (!foulStatusPending && !reactLeftPending && !reactRightPending){
+			if (!pending.foulStatus && !pending.leftReact && !pending.rightReact){
 				stm.rxTransition(rxState);					// wait until all pending messages have been sent until completing transition
 			}
 
