@@ -265,20 +265,40 @@ Connect all external peripherals to the Start Controller board as follows:
 
 ## Appendix A: Connector Pinout Quick Reference
 
-### External Connectors
+### Board Layout
 
-| Connector | Purpose | Pin 1 | Pin 2 | Pin 3 | Pin 4 | Pin 5 | Pin 6 | Pin 7 | Pin 8 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **J1** | RFID L&R | +3.3V | GND | RST | SCK | MOSI | MISO | CS L | CS R |
-| **J2** | Gate Control | +5V | +12V | Gate R | Gate L | Gate Reset | | | |
-| **J3** | Tree Left | +12V | Blue | Y3 | Y2 | Y1 | Green | Red | |
-| **J4** | Tree Right | +12V | Blue | Y3 | Y2 | Y1 | Green | Red | |
-| **J5** | Comm | RXD | TXD | GND | | | | | |
-| **J6** | Power | GND | +12V | | | | | | |
-| **J7** | Trig Left | TrigL | GND | | | | | | |
-| **J8** | Mode | Mode | GND | | | | | | |
-| **J9** | Trig Start | TrigS | GND | | | | | | |
-| **J10** | Trig Right | TrigR | GND | | | | | | |
+```text
+Top Edge
+             +------------------------------------------+
+     +12V 1--| J4 (Tree Right)           J3 (Tree Left) |--1 +12V
+     Blue 2--|  7-pin JST XH               7-pin JST XH |--2 Blue
+ Yellow 3 3--|                                          |--3 Yellow 3
+ Yellow 2 4--|                1    2                    |--4 Yellow 2
+ Yellow 1 5--|            J6 (Power In)                 |--5 Yellow 1
+    Green 6--|            2-pin Molex Nano              |--6 Green
+      Red 7--|                                          |--7 Red
+             |                          Rx  Tx GND      |
+ +3.3 Vcc 1--| J1 (RFID L&R)            1   2   3       |
+      GND 2--|  8-pin JST XH           J5 (Comm)        |
+      RST 3--|                         3-pin JST XH     |
+      SCK 4--|  J13 (Digital) 15-pin Arduino            |
+     MOSI 5--|    1 2 3 4 5 6 7 8 9 10 11 12 13 14 15   |
+     MISO 6--|                                          |
+      CSL 7--|    1 2 3 4 5 6 7 8 9 10 11 12 13 14 15   |
+      CSR 8--|  J12 (Analog) 15-pin Arduino             |
+             |                                          |
+TrigL_Raw 1--| J7 (Trig Left)                J9 (Start) |--2 GND
+      GND 2--|  2-pin JST XH               2-pin JST XH |--1 TrigS_Raw
+             |                                          |
+TrigR_Raw 1--| J10 (Trig Right)               J8 (Mode) |--2 GND
+      GND 2--|  2-pin JST XH               2-pin JST XH |--1 Mode_Raw
+             |             J2 (Gate Control)            |
+             |               5-pin JST XH               |
+             +------------------------------------------+
+                            1   2   3   4   5
+                           +5  +12  GL  GR  Sol
+Bottom Edge
+```
 
 ### J12 Arduino Header Connections (Analog)
 

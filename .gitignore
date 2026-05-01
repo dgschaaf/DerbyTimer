@@ -1,5 +1,4 @@
-# Build output (Arduino/PlatformIO/CMake/etc.)
-.pio/
+# Build output
 .build/
 cmake-build-*/
 *.elf
