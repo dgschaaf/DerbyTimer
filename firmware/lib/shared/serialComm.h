@@ -46,7 +46,7 @@ enum errCode : uint8_t {
 
 // Global RX state (updated by rxSerial)
 struct SerialRxState {
-	serialMsgID rxID			= MSG_NULL;			// last received message ID
+	serialMsgID ID			= MSG_NULL;			// last received message ID
 	serialMsgID lastAckedMsgID	= MSG_NULL;			// last acknowledged message ID
 	serialMsgID lastNackedMsgID	= MSG_NULL;			// last not acknowledged message ID
 	raceMode 	Mode			= MODE_GATEDROP;	// last received race mode
