@@ -1,16 +1,15 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+DerbyTimer is a hobbyist pinewood derby timing and race control system built on two cooperating Arduino microcontrollers connected by UART.
 
-## Project Overview
+> Prefer conceptual explanations alongside code changes — Darren is actively learning embedded development. See [.claude/collaboration.md](.claude/collaboration.md).
 
-DerbyTimer is a hobbyist pinewood derby timing and race control system. It uses two cooperating microcontrollers — a Start Controller and a Finish Controller — connected by a UART serial link.
+---
 
-## Build & Upload
+## Quick Reference
 
-This project uses **Arduino IDE** (not PlatformIO). There is no automated build command; sketches are compiled and uploaded from the Arduino IDE or `arduino-cli`.
+### Build & Upload
 
-To build with `arduino-cli` (if installed):
 ```bash
 # Start Controller (Arduino Nano ATmega328P)
 arduino-cli compile --fqbn arduino:avr:nano firmware/startController/startController.ino
@@ -21,101 +20,45 @@ arduino-cli compile --fqbn arduino:mbed_nano:nano33ble firmware/finishController
 arduino-cli upload  --fqbn arduino:mbed_nano:nano33ble -p <PORT> firmware/finishController/finishController.ino
 ```
 
-Serial monitor baud rate: **115,200** (both controllers).
+Serial monitor: **115,200 baud** (both controllers). Arduino IDE is primary; `arduino-cli` is optional.
+
+---
 
 ## Repository Structure
 
-```
+```text
 firmware/
-  startController/    # Arduino Nano (ATmega328P) firmware
-    startController.ino
-    src/              # State machine + module implementations
-  finishController/   # Arduino Nano 33 BLE (nRF52840) firmware
-    finishController.ino
-    src/
-  lib/shared/         # Code shared by both controllers
-    globals.h         # Enums (raceState, raceMode, countdownState) + bitmasks
-    serialComm.cpp/h  # UART protocol implementation
-  swTest/             # Software/protocol test sketches
-  raceManager/        # Future Raspberry Pi BLE race manager (incomplete)
+  startController/      # Arduino Nano (ATmega328P)
+  finishController/     # Arduino Nano 33 BLE (nRF52840)
+  lib/shared/           # globals.h + serialComm — shared by both controllers
+  swTest/               # Serial protocol test sketches
+  raceManager/          # Future RPi BLE race manager (incomplete stub)
 hardware/
-  startBoard/         # KiCad schematic + PCB for start controller shield
-  finishBoard/        # KiCad schematic + PCB for finish controller shield
-  hwTest/             # Hardware functional test sketches + test protocols (.md)
-docs/                 # Detailed design documents for each subsystem
+  startBoard/           # KiCad schematic + PCB for start controller shield
+  finishBoard/          # KiCad schematic + PCB for finish controller shield
+  hwTest/               # Hardware functional test sketches + protocols
+docs/                   # Human-readable design docs (startController, finishController)
+.claude/                # Claude-specific reference files (see index below)
 ```
 
-## Architecture
+---
 
-### System Design
+## Reference Index
 
-```
-[Start Controller]  ──── UART 115200 baud ────  [Finish Controller]
- Arduino Nano                                     Arduino Nano 33 BLE
- ATmega328P                                       nRF52840
-                                                       │
-                                               (future BLE)
-                                                       │
-                                              [Race Manager - RPi]
-```
+| File | Purpose |
+| ---- | ------- |
+| [.claude/architecture.md](.claude/architecture.md) | System diagram, state machine, serial protocol, module tables, timing model, key conventions |
+| [.claude/project-status.md](.claude/project-status.md) | Living P0/P1/P2 issue tracker — update this when items are resolved or discovered |
+| [.claude/collaboration.md](.claude/collaboration.md) | How Darren likes to work, what he's learning, past mistakes to avoid |
+| [.claude/conventions.md](.claude/conventions.md) | Code conventions, file encoding, git workflow, doc conventions |
+| [.claude/notes/open_questions.md](.claude/notes/open_questions.md) | Deferred investigation items requiring a decision |
+| [docs/startController.md](docs/startController.md) | Start controller design doc (human-facing, kept current) |
+| [docs/finishController.md](docs/finishController.md) | Finish controller design doc (human-facing, kept current) |
 
-### State Machine
-
-Both controllers share the same `raceState` enum and stay in sync via serial messages:
-
-```
-IDLE → STAGING → COUNTDOWN → RACING → COMPLETE → (back to IDLE)
-```
-
-The **Start Controller** drives state transitions; the Finish Controller follows. State is kept in `currentState` / `targetState` globals and sent as `MSG_STATE` messages.
-
-### Communication Protocol (`firmware/lib/shared/serialComm.cpp`)
-
-14 message types over UART. Key reliability features:
-- ACK/NACK confirmation on every message
-- 3-retry limit with 50 ms timeout per retry
-- The finish controller calls `rxSerial()` frequently in the main loop to parse incoming messages and update the `rx` struct (`rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul`, `rx.DisplayAdvanceFlag`)
-
-### Start Controller Modules (`firmware/startController/src/`)
-
-| Module | Responsibility |
-|--------|---------------|
-| `startController.cpp` | Top-level state machine, orchestrates all modules |
-| `buttons.cpp` | 4-button debounced input (Start, Mode, Left Lane, Right Lane) |
-| `gates.cpp` | Electromagnet hold + spring-return solenoid (500 ms window) |
-| `lights.cpp` | "Christmas Tree" dual 6-light array via 74HC595 shift register |
-| `rfid.cpp` | Dual RC522 RFID readers for car identification |
-
-### Finish Controller Modules (`firmware/finishController/src/`)
-
-| Module | Responsibility |
-|--------|---------------|
-| `finishController.cpp` | State machine + race result computation |
-| `sensors.cpp` | SE61 optical finish sensors with ISR + min/max time filtering |
-| `display.cpp` | Two 5-digit seven-segment displays via chained 74HC595 + 74HC137 demux + MC14543B BCD driver |
-
-### Timing Model
-
-- **Reaction time**: measured in microseconds (`micros()`) from gate open to car detection
-- **Race time**: ISR-captured microsecond timestamp from `armSensors()` call
-- **Car time**: `raceTime - reactionTime` (normal) or `raceTime + reactionTime` (foul); rounded to nearest millisecond
-- Minimum race time filter: 500,000 µs (0.5 s) suppresses false triggers
-
-### Key Design Conventions
-
-- Shared enums live in `globals.h` — extend `raceMode` or `raceState` there when adding modes
-- All serial-received values live in the `SerialRxState rx` struct (defined in `serialComm.cpp`, declared `extern` in `serialComm.h`); access via `rx.Mode`, `rx.State`, `rx.LeftFoul`, etc.
-- "future:" comments in source mark planned features (BLE integration, car ID transmission)
-- `maxRaceTimeUs` (10 s) auto-completes a lane if sensor never triggers
+---
 
 ## Testing
 
-**Protocol tests** (`firmware/swTest/`): Upload `derbySerialTester.ino` to one controller and `derbySerialResponder.ino` to the other. The tester exercises all 14 message types and reports pass/fail counts over serial. See `derbySerialTester_Documentation.md` for the test protocol.
+**Protocol tests** — upload `firmware/swTest/derbySerialTester.ino` + `derbySerialResponder.ino` to the two controllers. Exercises all 12 message types; reports pass/fail over serial. See `firmware/swTest/derbySerialTester_Documentation.md`.
 
-**Hardware functional tests** (`hardware/hwTest/`): `startController_hw_functional_test.ino` and `finishController_hw_functional_test.ino` cycle through hardware peripherals. Corresponding `.md` files document expected behavior and connector layout for each test.
-
-## Known Issues / In-Progress
-
-- BLE communication to race manager is not yet implemented
-- RFID car ID transmission over serial is reserved in `RaceResults` but not yet wired up
-- Finish controller display pin constants (`PIN_BCD_MUX_A/B/C`, `PIN_AD0..AD3`, `PIN_LANE1/2`) in `display.cpp` may need adjustment to match actual shield PCB routing
+**Hardware functional tests** — `hardware/hwTest/startController_hw_functional_test.ino` and `finishController_hw_functional_test.ino`. Corresponding `.md` files document expected behavior per peripheral.
