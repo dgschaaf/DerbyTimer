@@ -73,7 +73,7 @@ struct stateMachine {
 				return;
 		}
 
-        return true;  // Already in target state
+        return;  // Already in target state
     }
 
 	void rxTransition(raceState newState) {
@@ -132,7 +132,7 @@ struct modeMachine {
 			case TX_ACKED:
 				// Transition has been confirmed, now commit
 				current		= target;   						// commit new mode
-				rxMode		= current;							// update Serial target to match
+				rx.Mode		= current;							// update Serial target to match
 				startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);	// blink new mode pattern 3x
 				resetTxState(MSG_RACE_MODE);
 				return;
@@ -196,8 +196,6 @@ struct PendingMsgs {
 	bool foulStatus;
 };
 
-static_assert(UID_LEN == serialUIDLength, "UID Lengths Must Match");
-
 // State & mode machine instances
 static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
 static modeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
@@ -208,10 +206,13 @@ static raceResultsData raceResults		= {0, 0, false, false};
 uint32_t tNow							= 0;			// current time in microseconds	
 
 // countdown 
-static countdownState cdState			= CD_IDLE;		// current countdownState value - see globals.h
-static countdownState prevCdState		= CD_IDLE;		// previous countdownState
-static unsigned long cdTimer			= 0;			// countdown timer
-static unsigned long stageDelay			= 500;			// default delay between staging sequences
+struct CountDownCtx {
+	countdownState state	= CD_IDLE;
+	countdownState prev		= CD_IDLE;
+	unsigned long timer		= 0;
+	unsigned long delay		= 0;		// set in CD_STAGED per mode
+};
+static CountDownCtx cd;
 
 // racing
 PendingMsgs pending 								= {false, false, false};
@@ -257,7 +258,7 @@ void startControllerLoop(){
 		case RACE_IDLE:
 			if(stm.entry){
 				stm.entry		= false;
-				cdState 		= CD_IDLE;
+				cd.state 		= CD_IDLE;
 				updateLights(LIGHT_OFF);
 				dropGate(gateL);										// make sure gate L isn't up
 				dropGate(gateR);										// make sure gate R isn't up
@@ -272,7 +273,7 @@ void startControllerLoop(){
 				if (isStartPressed())	stm.target = RACE_STAGING;		// Start moves to STAGING
 			}
 
-			stm.rxTransition(rxState);									// Handle unsolicited state changes from rxSerial
+			stm.rxTransition(rx.State);									// Handle unsolicited state changes from rxSerial
 			stm.selfTransition(stm.target);								// Handle state self-transition
 
 			if(stm.exit){
@@ -307,8 +308,8 @@ void startControllerLoop(){
 		case RACE_COUNTDOWN:
 			if(stm.entry){
 				stm.entry				= false;
-				cdState 				= CD_STAGED;
-				prevCdState 			= cdState;
+				cd.state 				= CD_STAGED;
+				cd.prev 			= cd.state;
 				startDelay				= 0;
 			}
 			
@@ -316,14 +317,14 @@ void startControllerLoop(){
 
 			handleEarlyStarts(tNow, mdm.current);						// Watch for early starts, drop gates, and log fouls.
 
-			cdState = tickCountdownState(mdm.current, cdState);			// Tick the countdown state.
-			if (cdState == CD_GO){
-				handleCountdownGoActions(cdState, prevCdState, tNow);	// When GO is reached, start race and transition state.
+			cd.state = tickCountdownState(mdm.current, cd.state);			// Tick the countdown state.
+			if (cd.state == CD_GO){
+				handleCountdownGoActions(cd.state, cd.prev, tNow);	// When GO is reached, start race and transition state.
 			}
-			if(cdState != prevCdState){
-				byte cdLights	= buildLightConfig(cdState, raceResults.leftFoul, raceResults.rightFoul, mdm.current);	// set new light pattern
-				updateLights(cdLights);									// update lights only when new cdState
-				prevCdState = cdState;
+			if(cd.state != cd.prev){
+				byte cdLights	= buildLightConfig(cd.state, raceResults.leftFoul, raceResults.rightFoul, mdm.current);	// set new light pattern
+				updateLights(cdLights);									// update lights only when new cd.state
+				cd.prev = cd.state;
 			}
 			
 			stm.selfTransition(stm.target);								// transitions state if updated target
@@ -376,7 +377,7 @@ void startControllerLoop(){
 			}
 
 			if (!pending.foulStatus && !pending.leftReact && !pending.rightReact){
-				stm.rxTransition(rxState);					// wait until all pending messages have been sent until completing transition
+				stm.rxTransition(rx.State);					// wait until all pending messages have been sent until completing transition
 			}
 
 			if(stm.exit){
@@ -387,9 +388,9 @@ void startControllerLoop(){
 		case RACE_COMPLETE:
 			if(stm.entry){
 				stm.entry				= false;
-				rxLeftWin				= false;
-				rxRightWin				= false;
-				rxTie					= false;
+				rx.LeftWin				= false;
+				rx.RightWin				= false;
+				rx.Tie					= false;
 				winLightsPend			= true;
 				blinkState.active 		= false;  						// Clear any pending blinks
 			}
@@ -398,14 +399,14 @@ void startControllerLoop(){
 			
 			if (winLightsPend){ 
 				// Determine win light pattern to show winner and start blink
-				if(rxLeftWin)	startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
-				if(rxRightWin)	startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
-				if(rxTie) 		startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
+				if(rx.LeftWin)	startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
+				if(rx.RightWin)	startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
+				if(rx.Tie) 		startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
 				winLightsPend 			= false;
 			}			
 				
 			if (!winLightsPend && !updateBlink()){				// note: this also executes the updateBlink() function to process blinks
-				stm.rxTransition(rxState); // wait until all pending messages have been sent until completing transition
+				stm.rxTransition(rx.State); // wait until all pending messages have been sent until completing transition
 			}
 
 			if(stm.exit){
@@ -435,8 +436,8 @@ void startControllerLoop(){
  static void handleModeChanges(){
  	// Handle mode changes via button press or rxSerial
 	if (!blinkState.active){
-		if (rxMode != mdm.current){
-			mdm.rxTransition(rxMode);								// Handle unsolicited mode changes from rxSerial
+		if (rx.Mode != mdm.current){
+			mdm.rxTransition(rx.Mode);								// Handle unsolicited mode changes from rxSerial
 		} else {
 			if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
 			if (isModePressed() && modeReleased){
@@ -503,7 +504,7 @@ static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev
 			case TX_FAILED:
 				pendStartTx 	= false;
 				resetTxState(MSG_RACE_START);
-				// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
+				updateLights(LIGHT_GO | LIGHT_FL | LIGHT_FR); // Should make both lights red
 				// future: log / transmit state transition error
 				break;
 			case TX_NONE:
@@ -522,30 +523,30 @@ countdownState tickCountdownState(raceMode mode, countdownState cdState){
 	switch (cdState) {
 		case CD_STAGED:
 			if (mode == MODE_PRO){
-				stageDelay = 400;
+				cd.delay = 400;		// Pro mode uses a 400 ms delay between stages
 				cdState = CD_Y1;
 			} else {
-				stageDelay = 500;
+				cd.delay = 500;		// Standard modes use a 500 ms delay between stages
 				cdState = CD_Y3;
 			}
-			cdTimer = currentTime;
+			cd.timer = currentTime;
 			break;
 		case CD_Y3:
-			if (currentTime - cdTimer >= stageDelay){
+			if (currentTime - cd.timer >= cd.delay){
 				cdState = CD_Y2;
-				cdTimer = currentTime;
+				cd.timer = currentTime;
 			}
 			break;
 		case CD_Y2:
-			if (currentTime - cdTimer >= stageDelay){
+			if (currentTime - cd.timer >= cd.delay){
 				cdState = CD_Y1;
-				cdTimer = currentTime;
+				cd.timer = currentTime;
 			}
 			break;
 		case CD_Y1:
-			if (currentTime - cdTimer >= stageDelay){
+			if (currentTime - cd.timer >= cd.delay){
 				cdState = CD_GO;
-				cdTimer = currentTime;
+				cd.timer = currentTime;
 			}
 			break;
 		default:
@@ -560,6 +561,7 @@ countdownState tickCountdownState(raceMode mode, countdownState cdState){
 
 unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
 	// Helper function to calculate elapsed microseconds with overflow protection
+	// Possible this is unnecessary since unsigned long subtraction wraps automatically
     if (endTime >= startTime) {
         return endTime - startTime;  					// Normal case
     } else {
@@ -619,7 +621,6 @@ bool handleResultsTx(serialMsgID messageID){
 		default:
 			return true;				// still pending
 	}
-	return pendFlag;
 }
 
  /* =========================================================================

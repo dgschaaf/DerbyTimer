@@ -12,7 +12,7 @@ void setupLights() {
     pinMode(dataPin, OUTPUT);
     pinMode(clockPin, OUTPUT);
     pinMode(latchPin, OUTPUT);
-    lightsOff();
+    updateLights(LIGHT_OFF); // Start with all lights off
 }
 
 void updateLights(byte config){

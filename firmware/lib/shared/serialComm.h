@@ -12,12 +12,9 @@ enum serialMsgID : uint8_t {
     MSG_ERROR, 			// any error states
 	MSG_LEFT_REACT, 	// reaction time and foul status
 	MSG_RIGHT_REACT, 	// reaction time and foul status
-	MSG_LEFT_RESULT,		// Race time, reaction time, foul status
-	MSG_RIGHT_RESULT,	// Race time, reaction time, foul status
 	MSG_FOUL,			// foul status of left and right
 	MSG_WINNER, 		// did L or R win for flashing tree lights
 	MSG_DISP_ADVANCE, 	// start is pressed, move to reaction display
-
 	
 	MSG_COUNT			// keep as last to count the number of messages
 };
@@ -48,24 +45,27 @@ enum errCode : uint8_t {
 };
 
 // Global RX state (updated by rxSerial)
-extern serialMsgID rxID;					// received message ID
-extern serialMsgID lastAckedMsgID;
-extern serialMsgID lastNackedMsgID;
-extern raceMode rxMode;
-extern raceState rxState;
-extern errCode lastErrorCode;
+struct SerialRxState {
+	serialMsgID rxID			= MSG_NULL;			// last received message ID
+	serialMsgID lastAckedMsgID	= MSG_NULL;			// last acknowledged message ID
+	serialMsgID lastNackedMsgID	= MSG_NULL;			// last not acknowledged message ID
+	raceMode 	Mode			= MODE_GATEDROP;	// last received race mode
+	raceState 	State			= RACE_IDLE;		// last reveived race state
+	errCode 	lastErrorCode	= err_NULL;			// last received error code
 
-extern bool	rxRaceStart;
-extern bool	rxLeftStart;
-extern bool	rxRightStart;
-extern bool	rxLeftFoul;
-extern bool	rxRightFoul;					
-extern bool	rxLeftWin;
-extern bool	rxRightWin;
-extern bool	rxTie;
-extern bool rxDisplayAdvanceFlag;
-extern int32_t rxLeftReactionTime;
-extern int32_t rxRightReactionTime;
+	bool	RaceStart			= false;
+	bool	LeftStart			= false;
+	bool	RightStart			= false;
+	bool	LeftFoul			= false;
+	bool	RightFoul			= false;
+	bool	LeftWin				= false;
+	bool	RightWin			= false;
+	bool	Tie					= false;
+	bool 	DisplayAdvanceFlag	= false;
+	int32_t LeftReactionTime	= 0;
+	int32_t RightReactionTime	= 0;
+};
+extern SerialRxState rx;
 
 // Public API
 void setupSerial();
@@ -89,6 +89,6 @@ uint8_t getExpectedPayloadLength(serialMsgID id);
 void resetTxState(serialMsgID id);
 
 // TX timing
-#constexpr uint16_t txTimeout	= 50;	// milliseconds to wait for tx timeout
+constexpr uint16_t txTimeout	= 50;	// milliseconds to wait for tx timeout
 
 #endif	// serialComm_H

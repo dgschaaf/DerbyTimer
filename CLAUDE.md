@@ -74,7 +74,7 @@ The **Start Controller** drives state transitions; the Finish Controller follows
 14 message types over UART. Key reliability features:
 - ACK/NACK confirmation on every message
 - 3-retry limit with 50 ms timeout per retry
-- The finish controller calls `rxSerial()` frequently in the main loop to parse incoming messages and update shared globals (`rxLeftReactionTime`, `rxRightReactionTime`, `rxLeftFoul`, `rxRightFoul`, `rxDisplayAdvanceFlag`)
+- The finish controller calls `rxSerial()` frequently in the main loop to parse incoming messages and update the `rx` struct (`rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul`, `rx.DisplayAdvanceFlag`)
 
 ### Start Controller Modules (`firmware/startController/src/`)
 
@@ -104,7 +104,7 @@ The **Start Controller** drives state transitions; the Finish Controller follows
 ### Key Design Conventions
 
 - Shared enums live in `globals.h` — extend `raceMode` or `raceState` there when adding modes
-- Both controllers use `extern` globals for serial-received values (appropriate for single-threaded embedded targets)
+- All serial-received values live in the `SerialRxState rx` struct (defined in `serialComm.cpp`, declared `extern` in `serialComm.h`); access via `rx.Mode`, `rx.State`, `rx.LeftFoul`, etc.
 - "future:" comments in source mark planned features (BLE integration, car ID transmission)
 - `maxRaceTimeUs` (10 s) auto-completes a lane if sensor never triggers
 
@@ -117,6 +117,5 @@ The **Start Controller** drives state transitions; the Finish Controller follows
 ## Known Issues / In-Progress
 
 - BLE communication to race manager is not yet implemented
-- Some enumerations in `serialComm.h` have missing trailing commas — fix before compiling
 - RFID car ID transmission over serial is reserved in `RaceResults` but not yet wired up
-- Finish controller display wiring constants (`DECIMAL_LEFT_TIME` etc.) may need adjustment to match actual shield PCB routing
+- Finish controller display pin constants (`PIN_BCD_MUX_A/B/C`, `PIN_AD0..AD3`, `PIN_LANE1/2`) in `display.cpp` may need adjustment to match actual shield PCB routing

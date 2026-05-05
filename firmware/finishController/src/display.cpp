@@ -74,7 +74,7 @@ void updateDisplay(uint32_t timeUs, bool isLeft) {
     
     // Rounds time in us to ms
     uint32_t tMs = (timeUs + 500) / 1000;               // round time to the nearest millisecond
-    if (tMs > 99999) tMs = 99999;                       // clamp time at 99.999 to avoid overflow on the display
+    if (tMs > 99998) tMs = 99998;                       // clamp time at 99.999 to avoid overflow on the display
 
     uint8_t d[NUM_DIGITS];
     d[0] = (tMs / 10000) % 10;  // tens

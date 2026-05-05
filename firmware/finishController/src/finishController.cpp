@@ -153,11 +153,11 @@ void finishControllerLoop() {
 				clearDisplay(false);			// clear display (right))
 			}
 
-			if (rxMode != currentMode){
-				currentMode 		= rxMode;	// update mode from serial, source will validate
+			if (rx.Mode != currentMode){
+				currentMode 		= rx.Mode;	// update mode from serial, source will validate
 				// notifyBLEMode(currentMode);	// Future - notify mode change over BLE
 			}
-			stm.rxTransition(rxState);			// transitions state if received via serial
+			stm.rxTransition(rx.State);			// transitions state if received via serial
 			if(stm.exit){
 				stm.exit 			= false;
 			}
@@ -168,7 +168,7 @@ void finishControllerLoop() {
 			if(stm.entry){
 				stm.entry 			= false;
 			}
-			stm.rxTransition(rxState);			// transitions state if received via serial
+			stm.rxTransition(rx.State);			// transitions state if received via serial
 			if(stm.exit){
 				stm.exit 			= false;
 			}
@@ -178,15 +178,15 @@ void finishControllerLoop() {
 		case RACE_COUNTDOWN:
 			if(stm.entry){
 				stm.entry 			= false;
-				rxRaceStart			= false;
+				rx.RaceStart			= false;
 				race.raceStartUs	= 0;
 			}
 
-			if (rxRaceStart && (race.raceStartUs == 0)) {
+			if (rx.RaceStart && (race.raceStartUs == 0)) {
 				race.raceStartUs	= micros();
 				armSensors(race.raceStartUs);
 			}
-			stm.rxTransition(rxState);						// transitions state if received via serial	
+			stm.rxTransition(rx.State);						// transitions state if received via serial	
 			if(stm.exit){
 				stm.exit 			= false;		
 			}
@@ -200,10 +200,10 @@ void finishControllerLoop() {
 				race.rightRecorded		= false;
 				race.leftTimeUs			= 0;
 				race.rightTimeUs		= 0;
-				rxRightReactionTime		= -1;
-				rxLeftReactionTime		= -1;
-				rxLeftFoul				= false;
-				rxRightFoul				= false;
+				rx.RightReactionTime		= -1;
+				rx.LeftReactionTime		= -1;
+				rx.LeftFoul				= false;
+				rx.RightFoul				= false;
 				stm.entry 				= false;
 				// Only arm if not already armed from COUNTDOWN state
 				if (race.raceStartUs	== 0){
@@ -229,7 +229,7 @@ void finishControllerLoop() {
 		case RACE_COMPLETE:
 			if(stm.entry){
 				needReact				= false;	// clear flag for safety
-				rxDisplayAdvanceFlag	= false;	// clear flag for safety
+				rx.DisplayAdvanceFlag	= false;	// clear flag for safety
 				txWinPending			= true;		// set winner transmission flag
 				computeRaceTimes();					// calculate and compile race times, reaction times, and winner
 				displayCarTimes();					// push car times to display
@@ -240,14 +240,14 @@ void finishControllerLoop() {
 				transmitWinnerToSC();				// send winner over serial to startController
 			}
 
-			if(rxDisplayAdvanceFlag) {
+			if(rx.DisplayAdvanceFlag) {
 				// When startControll signals to advance display (start trigger)
 				if(needReact){
 					displayReactionTimes();
 				} else {
 					stm.target			= RACE_IDLE;
 				}
-				rxDisplayAdvanceFlag	= false;
+				rx.DisplayAdvanceFlag	= false;
 			}
 			stm.selfTransition(stm.target);				// transitions state if updated target
 
@@ -320,21 +320,21 @@ void handleSensors() {
 }
 
 void handleRxReaction() {
-	if (rxLeftReactionTime >= 0) {
-		leftResults.reactionTimeUs 	= (uint32_t)rxLeftReactionTime;
-		rxLeftReactionTime 			= -1;		// reset flag
+	if (rx.LeftReactionTime >= 0) {
+		leftResults.reactionTimeUs 	= (uint32_t)rx.LeftReactionTime;
+		rx.LeftReactionTime 			= -1;		// reset flag
 	}
-	if (rxRightReactionTime >= 0) {
-		rightResults.reactionTimeUs	= (uint32_t)rxRightReactionTime;	
-		rxRightReactionTime 		= -1;		// reset flag
+	if (rx.RightReactionTime >= 0) {
+		rightResults.reactionTimeUs	= (uint32_t)rx.RightReactionTime;	
+		rx.RightReactionTime 		= -1;		// reset flag
 	}
-	if (rxLeftFoul) {
+	if (rx.LeftFoul) {
 		leftResults.foul			= true;
-		rxLeftFoul					= false;	// reset flag
+		rx.LeftFoul					= false;	// reset flag
 	}
-	if (rxRightFoul) {
+	if (rx.RightFoul) {
 		rightResults.foul			= true;
-		rxRightFoul					= false;	// reset flag
+		rx.RightFoul					= false;	// reset flag
 	}
 	
 }
@@ -377,7 +377,8 @@ void transmitWinnerToSC(){
 		case TX_FAILED:
 			txWinPending = false;						// winner transmission failed
 			resetTxState(MSG_WINNER);					// reset transmit message
-			// future: flash red lights for error; updateLights(LIGHT_FL | LIGHT_FR);
+			// No need for UI, worst case the SC doesn't flash lights for the winner,
+			// the finish times will still be displayed.
 			// future: log / transmit state transition error
 			break;
 		case TX_NONE:

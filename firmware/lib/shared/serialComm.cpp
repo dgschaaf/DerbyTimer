@@ -4,29 +4,10 @@
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 
-
-serialMsgID lastAckedMsgID			= MSG_NULL;	// initialize to the null message
-serialMsgID lastNackedMsgID			= MSG_NULL;	// initialize to the null message
-serialMsgID rxID					= MSG_NULL;	// initialize to the null message
-errCode lastErrorCode				= err_NULL;	// initialize to the null error
-static const uint8_t maxRetries 	= 3;		// number of tx retries allowed
+SerialRxState rx;   						// global definition — initialized by in-class defaults
+static const uint8_t maxRetries 	= 3;	// number of tx retries allowed
 
 // Initialize all external varaiables
-raceMode rxMode           			= MODE_GATEDROP;
-raceState rxState         			= RACE_IDLE;
-bool rxRaceStart          			= false;
-bool rxLeftStart          			= false;
-bool rxRightStart         			= false;
-bool rxLeftFoul           			= false;
-bool rxRightFoul          			= false;
-bool rxLeftWin            			= false;
-bool rxRightWin           			= false;
-bool rxTie                			= false;
-bool rxDisplayAdvanceFlag			= false;
-int32_t rxLeftReactionTime  		= -1;
-int32_t rxRightReactionTime 		= -1;
-//uint8_t rxLeftID[serialUIDLength] 	= {0};
-//uint8_t rxRightID[serialUIDLength]	= {0};
 
 struct TxTracker {
 	txStatus status;	
@@ -55,32 +36,32 @@ bool rxSerial() {
 	// Peek at the ID and determine if the entire payload has been received before processing
 	if (available < (1 + expectedLen)) return false;
 
-	rxID = (serialMsgID)Serial.read();  // Read 1-byte message ID
+	rx.ID = (serialMsgID)Serial.read();  // Read 1-byte message ID
 
-	switch (rxID) {
+	switch (rx.ID) {
 		case MSG_RACE_MODE: {
 			if (Serial.available() >= 1) {
 				uint8_t newMode = Serial.read();
-				rxMode = newMode;  // Update your race mode
-				txAck(rxID);
+				rx.Mode = newMode;  // Update your race mode
+				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_RACE_STATE: {
 			if (Serial.available() >= 1) {
 				uint8_t newState = Serial.read();
-				rxState = newState;  // Update your global state
-				txAck(rxID);
+				rx.State = newState;  // Update your global state
+				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_RACE_START: {
 			if (Serial.available() >= 1) {
 				uint8_t startMask 	= Serial.read();
-				rxRaceStart 	= startMask & 0b0001;
-				rxLeftStart	= startMask & 0b0010;
-				rxRightStart	= startMask & 0b0100;
-				txAck(rxID);
+				rx.RaceStart 	= startMask & 0b0001;
+				rx.LeftStart	= startMask & 0b0010;
+				rx.RightStart	= startMask & 0b0100;
+				txAck(rx.ID);
 			}
 			break;
 		}
@@ -89,66 +70,66 @@ bool rxSerial() {
 			if (Serial.available() >= sizeof(uint32_t)) {
 				int32_t reaction;
 				Serial.readBytes((uint8_t*)&reaction, sizeof(reaction));
-				if (rxID == MSG_LEFT_REACT) {
-					rxLeftReactionTime 	= reaction;
+				if (rx.ID == MSG_LEFT_REACT) {
+					rx.LeftReactionTime 	= reaction;
 				} else {
-					rxRightReactionTime 	= reaction;
+					rx.RightReactionTime 	= reaction;
 				}
-				txAck(rxID);
+				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_FOUL: {
 			if (Serial.available() >= 1) {
 				uint8_t foulMask 	= Serial.read(); // Bit 0 = L, Bit 1 = R
-				rxLeftFoul  	= foulMask & 0b0001;
-				rxRightFoul 	= foulMask & 0b0010;
-				txAck(rxID);
+				rx.LeftFoul  	= foulMask & 0b0001;
+				rx.RightFoul 	= foulMask & 0b0010;
+				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_WINNER: {
 			if (Serial.available() >= 1) {
 				uint8_t winnerMask	= Serial.read();
-				rxLeftWin 		= winnerMask & 0b0001;
-				rxRightWin 	= winnerMask & 0b0010;
-				rxTie 			= winnerMask & 0b0100;
-				txAck(rxID);
+				rx.LeftWin 		= winnerMask & 0b0001;
+				rx.RightWin 	= winnerMask & 0b0010;
+				rx.Tie 			= winnerMask & 0b0100;
+				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_DISP_ADVANCE: {
-			rxDisplayAdvanceFlag	= true;  // Flag your logic uses elsewhere
-			txAck(rxID);
+			rx.DisplayAdvanceFlag	= true;  // Flag your logic uses elsewhere
+			txAck(rx.ID);
 			break;
 		}
 		case MSG_ACK: {
 			if (Serial.available() >= 1) {
-				lastAckedMsgID = (serialMsgID)Serial.read(); // used to mark tx message as received
-				if (lastAckedMsgID < MSG_COUNT){
-					txState[lastAckedMsgID].status = TX_ACKED;
+				rx.lastAckedMsgID = (serialMsgID)Serial.read(); // used to mark tx message as received
+				if (rx.lastAckedMsgID < MSG_COUNT){
+					txState[rx.lastAckedMsgID].status = TX_ACKED;
 				}
 			}
 			break;
 		}
 		case MSG_NACK: {
 			if (Serial.available() >= 1) {
-				lastNackedMsgID = (serialMsgID)Serial.read(); // mark if message is misunderstood
-				if ( lastNackedMsgID < MSG_COUNT){
-					txState[lastNackedMsgID].status = TX_NACKED;
+				rx.lastNackedMsgID = (serialMsgID)Serial.read(); // mark if message is misunderstood
+				if ( rx.lastNackedMsgID < MSG_COUNT){
+					txState[rx.lastNackedMsgID].status = TX_NACKED;
 				}
 			}
 			break;
 		}
 		case MSG_ERROR: {
 			if (Serial.available() >= 1) {
-				lastErrorCode = (errCode)Serial.read(); // error code for logging
+				rx.lastErrorCode = (errCode)Serial.read(); // error code for logging
 			}
 			break;
 		}
 		default: {
-			// Unknown message rxID — send NACK
-			txNack(rxID);
+			// Unknown message rx.ID — send NACK
+			txNack(rx.ID);
 			break;
 		}
 	}
