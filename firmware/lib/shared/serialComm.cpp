@@ -237,7 +237,7 @@ txStatus txReactionTime(uint32_t reactionTime, bool isLeft){
 			if (state.retries > maxRetries){			// check if retries exceeded
 				return state.status = TX_FAILED;
 			}
-			sendMessage(msgID, &payload, sizeof(payload));// send payload	
+			sendMessage(msgID, payload, sizeof(payload));// send payload
 			state.sendTime 	= now;						// timestamp transmission
 			state.retries++;							// increment retries
 			return state.status 	= TX_SENT;
