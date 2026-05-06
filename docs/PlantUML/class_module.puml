@@ -1,0 +1,279 @@
+@startuml StartController_ClassModule
+left to right direction
+skinparam classAttributeIconSize 0
+skinparam stereotypeCBackgroundColor LightYellow
+skinparam packageStyle rectangle
+skinparam defaultFontSize 10
+skinparam classFontSize 11
+skinparam classHeaderBackgroundColor AliceBlue
+hide empty members
+
+' ============================================================
+' LIBRARIES
+' ============================================================
+class MFRC522 <<library>>
+class SPI     <<library>>
+
+' ============================================================
+' ENUMERATIONS
+' ============================================================
+enum raceState <<uint8_t>> {
+  RACE_IDLE
+  RACE_STAGING
+  RACE_COUNTDOWN
+  RACE_RACING
+  RACE_COMPLETE
+  RACE_TEST
+}
+
+enum countdownState <<uint8_t>> {
+  CD_IDLE
+  CD_STAGED
+  CD_Y3
+  CD_Y2
+  CD_Y1
+  CD_GO
+}
+
+enum raceMode <<uint8_t>> {
+  MODE_GATEDROP
+  MODE_REACTION
+  MODE_PRO
+  MODE_DIALIIN
+}
+
+enum errCode <<uint8_t>> {
+  err_NULL
+  err_STATE_TX_TIMEOUT
+  err_MODE_TX_TIMEOUT
+  err_START_TX_TIMEOUT
+  err_SERIAL_OVERFLOW
+  err_INVALID_MSG
+  err_STATE_MISMATCH
+}
+
+enum serialMsgID <<uint8_t>> {
+  MSG_NULL
+  MSG_ACK
+  MSG_NACK
+  MSG_RACE_MODE
+  MSG_RACE_STATE
+  MSG_RACE_START
+  MSG_ERROR
+  MSG_LEFT_REACT
+  MSG_RIGHT_REACT
+  MSG_FOUL
+  MSG_WINNER
+  MSG_DISP_ADVANCE
+  MSG_COUNT
+}
+
+enum txStatus <<uint8_t>> {
+  TX_NONE
+  TX_SENT
+  TX_ACKED
+  TX_TIMEOUT
+  TX_NACKED
+  TX_FAILED
+}
+
+enum RFIDResult {
+  RFID_OK
+  RFID_INVALID
+  RFID_COMM_ERR
+  RFID_NO_TAG
+  RFID_SKIPPED
+  RFID_NEW
+}
+
+' ============================================================
+' DATA TYPES / STRUCTS
+' ============================================================
+class LightConfig <<dataType>> {
+  +state : CountdownState
+  +FL    : bool
+  +FR    : bool
+  +mode  : modes
+}
+
+class RFIDReader <<struct>> {
+  -reader       : MFRC522
+  -lastReadTime : ulong
+  -uid          : uint8_t[10]
+  -uidLength    : byte
+  --
+  +RFIDReader(ss : byte, rst : byte)
+  +init()                          : void
+  +readTag(threshold : ulong)      : RFIDResult
+  +isValid()                       : bool
+}
+
+' ============================================================
+' MODULES
+' ============================================================
+class buttons <<module>> {
+  +setupButtons()    : void
+  +isStartPressed()  : bool
+  +isModePressed()   : bool
+  +isLeftPressed()   : bool
+  +isRightPressed()  : bool
+}
+
+class gates <<module>> {
+  +setupGates()       : void
+  +dropGate(pin)      : void
+  +returnGates()      : void
+}
+
+class lights <<module>> {
+  .. Bitmasks ..
+  {field} #define LIGHT_OFF
+  {field} #define LIGHT_BR
+  {field} #define LIGHT_BL
+  {field} #define LIGHT_Y1
+  {field} #define LIGHT_Y2
+  {field} #define LIGHT_Y3
+  {field} #define LIGHT_GO
+  {field} #define LIGHT_FL
+  {field} #define LIGHT_FR
+  .. Extern State ..
+  +blinkState : BlinkState
+  --
+  +setupLights()                                                  : void
+  +updateLights(config : byte)                                    : void
+  +buildLightConfig(state, FL, FR, mode)                          : byte
+  +lightTestPattern()                                             : void
+  +startBlink(pattern1, pattern2, count, rate, finalPattern)      : void
+  +updateBlink()                                                  : bool
+}
+
+class serialComm <<module>> {
+  .. SerialRxState rx (extern struct) ..
+  +rx.ID                  : serialMsgID
+  +rx.lastAckedMsgID      : serialMsgID
+  +rx.lastNackedMsgID     : serialMsgID
+  +rx.lastErrorCode       : errCode
+  +rx.Mode                : raceMode
+  +rx.State               : raceState
+  +rx.RaceStart           : bool
+  +rx.LeftStart           : bool
+  +rx.RightStart          : bool
+  +rx.LeftFoul            : bool
+  +rx.RightFoul           : bool
+  +rx.LeftWin             : bool
+  +rx.RightWin            : bool
+  +rx.Tie                 : bool
+  +rx.DisplayAdvanceFlag  : bool
+  +rx.LeftReactionTime    : int32_t
+  +rx.RightReactionTime   : int32_t
+  .. TX timeout ..
+  {field} constexpr txTimeout : uint16_t = 50
+  --
+  +setupSerial()                            : void
+  +rxSerial()                               : bool
+  +txRaceMode(newMode)                      : txStatus
+  +txRaceState(newState)                    : txStatus
+  +txRaceStart(start : uint8_t)             : txStatus
+  +txReactionTime(reactionTime, isLeft)     : txStatus
+  +txFoulStatus(foul : uint8_t)             : txStatus
+  +txWinner(winner : uint8_t)               : txStatus
+  +txDisplayAdvance()                       : txStatus
+  +txError(err : errCode)                   : txStatus
+  +txAck(ackID : uint8_t)                   : void
+  +txNack(nackID : uint8_t)                 : void
+  +sendMessage(id, data, len)               : void
+  +getExpectedPayloadLength(id)             : uint8_t
+  +resetTxState(id)                         : void
+}
+
+class globals <<module>> {
+  .. Enum Declarations ..
+  countdownState  : <<uint8_t>>
+  raceMode        : <<uint8_t>>
+  raceState       : <<uint8_t>>
+  .. Bitmasks ..
+  {field} #define winner_tie
+  {field} #define winner_leftWin
+  {field} #define winner_rightWin
+  {field} #define start_race
+  {field} #define start_left
+  {field} #define start_right
+  {field} #define start_all
+  {field} #define foul_left
+  {field} #define foul_right
+  {field} #define foul_both
+}
+
+class RFID <<module>> {
+  .. Extern State ..
+  +leftCarID    : uint8_t
+  +rightCarID   : uint8_t
+  +leftReader   : RFIDReader
+  +rightReader  : RFIDReader
+  +uidLength    : uint8_t
+  +rfidThresh   : unsigned long
+  {field} #define UID_LEN
+  --
+  +setupRFID()  : RFIDResult
+  .. future: not yet implemented ..
+}
+
+class startController <<module>> {
+  .. Extern State ..
+  +leftReactionTime   : unsigned long
+  +rightReactionTime  : unsigned long
+  +raceStartTime      : unsigned long
+  +leftStartTime      : unsigned long
+  +rightStartTime     : unsigned long
+  +leftFoul           : bool
+  +rightFoul          : bool
+  +targetState        : raceState
+  +currentState       : raceState
+  +targetMode         : raceMode
+  +currentMode        : raceMode
+  +gateStatus         : gateStatusInfo
+  --
+  +setup()                          : void
+  +loop()                           : void
+  +resetState()                     : void
+  +processRFID()                    : void
+  +advanceDisplay()                 : void
+  +updateState()                    : void
+  +setRaceMode(newMode : raceMode)  : void
+}
+
+' ============================================================
+' RELATIONSHIPS
+' ============================================================
+startController ..> buttons      : <<uses>>
+startController ..> gates        : <<uses>>
+startController ..> lights       : <<uses>>
+startController ..> serialComm   : <<uses>>
+startController ..> globals      : <<uses>>
+startController ..> RFID         : <<future>>
+startController ..> raceState    : <<uses>>
+startController ..> raceMode     : <<uses>>
+startController ..> countdownState : <<uses>>
+startController ..> errCode      : <<uses>>
+startController ..> serialMsgID  : <<uses>>
+startController ..> txStatus     : <<uses>>
+
+RFID       ..> RFIDReader  : <<uses>>
+RFID       ..> RFIDResult  : <<uses>>
+RFIDReader ..> MFRC522     : <<uses>>
+RFIDReader ..> SPI         : <<uses>>
+RFIDReader ..> RFIDResult  : <<uses>>
+
+lights     ..> LightConfig : <<uses>>
+
+serialComm ..> serialMsgID : <<uses>>
+serialComm ..> txStatus    : <<uses>>
+serialComm ..> errCode     : <<uses>>
+serialComm ..> raceMode    : <<uses>>
+serialComm ..> raceState   : <<uses>>
+
+globals    ..> countdownState : <<uses>>
+globals    ..> raceMode       : <<uses>>
+globals    ..> raceState      : <<uses>>
+
+@enduml

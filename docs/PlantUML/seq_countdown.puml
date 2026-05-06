@@ -1,0 +1,121 @@
+@startuml seq_raceState_COUNTDOWN
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceParticipantBorderColor Navy
+skinparam sequenceParticipantBackgroundColor AliceBlue
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam sequenceGroupBorderThickness 1.5
+
+title Sequence: raceState(COUNTDOWN) [DerbyTrack]
+
+' ============================================================
+' PARTICIPANTS — match original diagram left-to-right order
+' ============================================================
+participant "Tree\nLeft"         as TL
+participant "Tree\nRight"        as TR
+participant "Button\nRight"      as BR_BTN
+participant "Button\nLeft"       as BL_BTN
+participant "Gate L"             as GL
+participant "Gate R"             as GR
+participant "Start\nController"  as SC
+participant "Finish\nController" as FC
+
+' ============================================================
+' MODE: GATEDROP — synchronized countdown, auto gate drop
+' ============================================================
+group raceMode = GateDrop
+  SC -> TL : B, Y3 (500 ms)
+  SC -> TR : B, Y3 (500 ms)
+  SC -> TL : B, Y2 (500 ms)
+  SC -> TR : B, Y2 (500 ms)
+  SC -> TL : B, Y1 (500 ms)
+  SC -> TR : B, Y1 (500 ms)
+  SC -> TL : B, G
+  SC -> TR : B, G
+  SC -> GL : Deactivate(Drop)
+  SC -> GR : Deactivate(Drop)
+  SC -> FC : MSG_RACE_STATE(RACING)
+  FC --> SC : ack
+end
+
+' ============================================================
+' MODE: REACTION STD — staggered trees, button-triggered drop
+' Note: Left/Right tree updates are concurrent per step
+' ============================================================
+group raceMode = ReactionStd
+  SC -> TL : BL, Y3 (500 ms)
+  SC -> TR : BR, Y3 (500 ms)
+  SC -> TL : BL, Y2 (500 ms)
+  SC -> TR : BR, Y2 (500 ms)
+  SC -> TL : BL, Y1 (500 ms)
+  SC -> TR : BR, Y1 (500 ms)
+
+  alt [foulL]
+    SC -> TL : FL
+  else [foulR]
+    SC -> TR : FR
+  end
+
+  note over BL_BTN, BR_BTN
+    Left and Right button presses are concurrent.
+    Each triggers its own lane drop + GO light.
+  end note
+
+  BL_BTN -> SC : buttonPressed(Left)
+  SC -> GL     : Deactivate(Drop)
+  SC -> TL     : BL, GO
+  SC -> SC     : foulL && leftStart = now
+
+  BR_BTN -> SC : buttonPressed(Right)
+  SC -> GR     : Deactivate(Drop)
+  SC -> TR     : BR, GO
+  SC -> SC     : foulR && rightStart = now
+
+  SC -> FC : MSG_RACE_STATE(RACING)
+  FC --> SC : ack
+end
+
+' ============================================================
+' MODE: REACTION PRO — rapid flash, button-triggered drop
+' Note: Both tree flash sequences fire concurrently
+' ============================================================
+group raceMode = ReactPro
+  note over TL, TR
+    Both trees flash B, Y3, Y2, Y1 simultaneously (400 ms each)
+  end note
+
+  SC -> TL : B, Y3, Y2, Y1 (400 ms)
+  SC -> TR : B, Y3, Y2, Y1 (400 ms)
+
+  alt [foulL]
+    SC -> TL : FL
+  else [foulR]
+    SC -> TR : FR
+  end
+
+  note over BL_BTN, BR_BTN
+    Left and Right button presses are concurrent.
+    Each triggers its own lane drop + GO light.
+  end note
+
+  BL_BTN -> SC : buttonPressed(Left)
+  SC -> GL     : Deactivate(Drop)
+  SC -> TL     : BL, GO
+  SC -> SC     : foulL && leftStart = now
+
+  BR_BTN -> SC : buttonPressed(Right)
+  SC -> GR     : Deactivate(Drop)
+  SC -> TR     : BR, GO
+  SC -> SC     : foulR && rightStart = now
+
+  SC -> FC : MSG_RACE_STATE(RACING)
+  FC --> SC : ack
+end
+
+note over SC
+  If both drivers foul:
+  - Worst foul = red-lighted (FL or FR)
+  - Lesser infraction added to elapsed time
+end note
+
+@enduml

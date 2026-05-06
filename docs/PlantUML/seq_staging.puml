@@ -1,0 +1,115 @@
+@startuml seq_raceState_STAGING
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceParticipantBorderColor Navy
+skinparam sequenceParticipantBackgroundColor AliceBlue
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam sequenceGroupBorderThickness 1.5
+
+title Sequence: raceState(STAGING) [DerbyTrack]
+
+' ============================================================
+' PARTICIPANTS
+' ============================================================
+participant "Button\nStart"      as BS
+participant "Button\nMode"       as BM
+participant "Gate L"             as GL
+participant "Gate R"             as GR
+participant "RFID L"             as RFIDL
+participant "RFID R"             as RFIDR
+participant "Start\nController"  as SC
+participant "Finish\nController" as FC
+participant "Display\nLeft"      as DL
+participant "Display\nRight"     as DR
+participant "Race\nManager"      as RM
+participant "Tree\nLeft"         as TL
+participant "Tree\nRight"        as TR
+
+' ============================================================
+' ENTRY: Gate activation
+' ============================================================
+SC -> GL    : Activate(Hold)
+SC -> GR    : Activate(Hold)
+SC -> GL    : Activate(500 ms)
+SC -> GR    : Activate(500 ms)
+
+' ============================================================
+' RFID car identification — Left lane
+' ============================================================
+RFIDL -> SC : RFID tag
+SC -> SC     : Check RFID_L
+SC -> TL     : LIGHT_BL
+
+note over RFIDL, SC
+  future: RFID car ID not yet implemented
+end note
+
+alt [if newIDPresent(RFID_L)]
+  SC -> FC  : MSG_LEFT_CAR_ID  [future]
+  FC --> SC : MSG_ACK
+
+  alt [if match(racerDatabase)]
+    SC -> RM  : MSG_LEFT_CAR_ID(MATCH)  [future/BLE]
+    RM --> SC : MSG_ACK
+    SC -> TL  : Blue (blink 3x)
+    RM -> DL  : Display(next matchup)
+  else [else]
+    SC -> RM  : MSG_LEFT_CAR_ID(MISMATCH)  [future/BLE]
+    RM --> SC : MSG_ACK
+    RM -> DL  : Display(incorrect matchup)
+  end
+end
+
+note over RM, DL
+  Match logic:
+  - Bracket/Pro: is car ID correct for next matchup?
+    MATCH = return same ID | MISMATCH = return expected ID
+  - GateDrop: is car ID recognized?
+    MATCH = return same ID | MISMATCH = return default ID
+end note
+
+' ============================================================
+' RFID car identification — Right lane
+' ============================================================
+RFIDR -> SC : RFID tag
+SC -> SC     : Check RFID_R
+SC -> TR     : LIGHT_BR
+
+alt [if newIDPresent(RFID_R)]
+  SC -> FC  : MSG_RIGHT_CAR_ID  [future]
+  FC --> SC : MSG_ACK
+
+  alt [if match(racerDatabase)]
+    SC -> RM  : MSG_RIGHT_CAR_ID(MATCH)  [future/BLE]
+    RM --> SC : MSG_ACK
+    SC -> TR  : Blue (blink 3x)
+    RM -> DR  : Display(next matchup)
+  else [else]
+    SC -> RM  : MSG_RIGHT_CAR_ID(MISMATCH)  [future/BLE]
+    RM --> SC : MSG_ACK
+    RM -> DR  : Display(incorrect matchup)
+  end
+end
+
+' ============================================================
+' Transition to COUNTDOWN or back to IDLE
+' ============================================================
+alt [If AnalogButton(Start)]
+  BS -> SC : buttonPressed(Start)
+  SC -> FC : MSG_RACE_STATE(COUNTDOWN)
+  FC --> SC : MSG_ACK
+  SC -> RM : MSG_RACE_STATE(COUNTDOWN)
+  RM --> SC : MSG_ACK
+  FC -> DL : MSG_RACE_STATE(COUNTDOWN)
+  FC -> DR : MSG_RACE_STATE(COUNTDOWN)
+  SC -> SC  : raceState(Countdown)
+
+else [If AnalogButton(Mode)]
+  BM -> SC : buttonPressed(Mode)
+  SC -> FC : MSG_RACE_STATE(IDLE)
+  FC --> SC : MSG_ACK
+  SC -> RM : MSG_RACE_STATE(IDLE)
+  RM --> SC : MSG_ACK
+end
+
+@enduml

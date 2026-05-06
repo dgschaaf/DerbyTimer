@@ -1,0 +1,94 @@
+@startuml raceManager_STM
+skinparam state {
+  BackgroundColor AliceBlue
+  BorderColor Navy
+  FontSize 11
+  ArrowFontSize 10
+}
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+
+title Race Manager State Machine
+
+[*] --> Startup
+
+' ============================================================
+' STARTUP
+' ============================================================
+state "Startup" as Startup {
+  Startup : entry / Ask "Test Setup?"
+  Startup : do / Execute tests
+  Startup : exit / Display status
+}
+
+' ============================================================
+' TEST
+' ============================================================
+state "Test" as Test {
+  state "Arduino Tests" as ArduinoTests {
+    ArduinoTests : - Solenoid Test
+    ArduinoTests : - Display Test
+    ArduinoTests : - Sensor Test
+    ArduinoTests : - Tree Test
+  }
+  state "Controller Tests" as ControllerTests {
+    ControllerTests : - Onboard Tests
+    ControllerTests : - Camera Test
+    ControllerTests : - HDMI Test
+    ControllerTests : - Car ID Test
+  }
+
+  [*]          --> ArduinoTests
+  ArduinoTests --> ControllerTests
+}
+
+Test : exit / Go/NoGo, Error
+
+' ============================================================
+' IDLE
+' ============================================================
+state "Idle" as Idle
+
+' ============================================================
+' DATA ENTRY
+' ============================================================
+state "Data Entry" as DataEntry
+
+' ============================================================
+' OPERATING MODES
+' ============================================================
+state "Practice Mode" as PracticeMode {
+  PracticeMode : entry / ControllerMode[GateDrop or Reaction]
+}
+
+state "Time Trial" as TimeTrial
+
+state "Bracket" as Bracket
+
+state "Dial-In" as DialIn
+
+' ============================================================
+' TRANSITIONS
+' ============================================================
+Startup     --> Idle         : [testSkipped]
+Startup     --> Test         : [testRequested]
+
+Test        --> Idle         : Test_Complete [Go / NoGo / Error]
+
+Idle        --> DataEntry    : [mode selected]
+Idle        --> Test         : [test requested]
+
+DataEntry   --> PracticeMode : ControllerMode[GateDrop] / DataEntry[Exit]
+DataEntry   --> PracticeMode : ControllerMode[Reaction] / DataEntry[Exit]
+DataEntry   --> TimeTrial    : [Time Trial selected]
+DataEntry   --> Bracket      : [Bracket selected]
+DataEntry   --> DialIn       : [Dial-In selected]
+
+PracticeMode --> Idle        : Practice[Exit] / ControllerMode[GateDrop]
+PracticeMode --> Idle        : Practice[Exit] / ControllerMode[Reaction]
+
+TimeTrial   --> Idle         : [race complete]
+Bracket     --> Idle         : [race complete]
+DialIn      --> Idle         : [race complete]
+
+@enduml

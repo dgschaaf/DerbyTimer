@@ -1,0 +1,95 @@
+@startuml seq_raceState_RACING
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceParticipantBorderColor Navy
+skinparam sequenceParticipantBackgroundColor AliceBlue
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam sequenceGroupBorderThickness 1.5
+
+title Sequence: raceState(RACING) [DerbyTrack]
+
+' ============================================================
+' PARTICIPANTS
+' ============================================================
+participant "Button\nRight"      as BR_BTN
+participant "Button\nLeft"       as BL_BTN
+participant "Gate L"             as GL
+participant "Gate R"             as GR
+participant "Start\nController"  as SC
+participant "Finish\nController" as FC
+participant "Sensor\nLeft"       as SL
+participant "Sensor\nRight"      as SR
+participant "Race\nManager"      as RM
+participant "Camera"             as CAM
+
+' ============================================================
+' Reaction mode: buttons capture reaction times at race start
+' ============================================================
+group raceMode = ReactionStd or ReactionPro
+  note over BL_BTN, BR_BTN
+    Left and Right button presses are concurrent;
+    each independently records start time and drops its gate.
+  end note
+
+  BL_BTN -> SC : buttonPressed(Left)
+  SC -> SC     : leftStart = now
+  SC -> GL     : Deactivate(Drop)
+
+  BR_BTN -> SC : buttonPressed(Right)
+  SC -> SC     : rightStart = now
+  SC -> GR     : Deactivate(Drop)
+
+  SC -> FC : MSG_LEFT_REACT
+  FC --> SC : ack
+  SC -> FC : MSG_RIGHT_REACT
+  FC --> SC : ack
+  SC -> FC : MSG_FOUL
+  FC --> SC : ack
+end
+
+' ============================================================
+' Camera buffer during race
+' ============================================================
+note over CAM
+  Buffer 2 sec before and
+  2 sec after race complete
+end note
+
+' ============================================================
+' Sensor monitoring
+' ============================================================
+FC -> SL : checkSensor(Left)
+FC -> SR : checkSensor(Right)
+
+alt [sensorLeft == true]
+  SL -> FC : trackFinish(Left)
+  FC -> RM : trackFinish(Left)
+end
+
+alt [sensorRight == true]
+  SR -> FC : trackFinish(Right)
+  FC -> RM : trackFinish(Right)
+end
+
+' ============================================================
+' Timeout guard — disqualify if >10 seconds
+' ============================================================
+alt [raceTime(Left) > 10 sec]
+  FC -> FC : trackFinish(Left) [timeout]
+end
+
+alt [raceTime(Right) > 10 sec]
+  FC -> FC : trackFinish(Right) [timeout]
+end
+
+' ============================================================
+' Both lanes finished → transition to COMPLETE
+' ============================================================
+alt [trackFinish(Left) && trackFinish(Right)]
+  FC -> SC : MSG_RACE_STATE(COMPLETE)
+  SC --> FC : ack
+  FC -> RM : MSG_RACE_STATE(COMPLETE)
+  RM --> FC : ack
+end
+
+@enduml

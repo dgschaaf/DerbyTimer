@@ -1,0 +1,133 @@
+@startuml startController_STM
+skinparam state {
+  BackgroundColor AliceBlue
+  BorderColor Navy
+  FontSize 11
+  ArrowFontSize 10
+}
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+
+title startController State Machine
+
+[*] --> Setup
+
+' ============================================================
+' SETUP
+' ============================================================
+state "Setup" as Setup {
+  Setup : do / setupSerial()
+  Setup : do / setupLights()
+  Setup : do / setupGates()
+  Setup : do / setupRFID()
+  Setup : do / setupButtons()
+}
+
+Setup --> IDLE : / void loop()
+
+' ============================================================
+' IDLE  (composite — raceMode sub-states)
+' ============================================================
+state "IDLE" as IDLE {
+  IDLE : entry / reset(cdState, lights, targetState/Mode, buttons)
+  IDLE : entry / dropGates()
+  IDLE : do / monitor mode transition (button, rx)
+  IDLE : do / monitor state transition (button, state)
+  IDLE : exit / tx state change to finishController
+
+  state "GATEDROP\n[LIGHT_Y1]" as M_GD
+  state "REACTION\n[LIGHT_Y2]"  as M_RE
+  state "PRO\n[LIGHT_Y3]"       as M_PR
+  state "DIAL-IN\n[LIGHT_GO]"   as M_DI #line.dashed
+
+  note right of M_DI : future: not reachable\nvia Button_Mode cycle
+
+  [*]   --> M_GD
+  M_GD --> M_RE : Button_Mode
+  M_RE --> M_PR : Button_Mode
+  M_PR --> M_GD : Button_Mode
+}
+
+' ============================================================
+' STAGING
+' ============================================================
+state "STAGING" as STAGING {
+  STAGING : entry / reset(carID, targetState/Mode, blinkState)
+  STAGING : entry / LIGHT_BL, LIGHT_BR
+  STAGING : entry / returnGates()
+  STAGING : do / monitor RFID for car ID  [future]
+  STAGING : do / tx car ID to finishController  [future]
+  STAGING : do / rx car ID confirmation  [future]
+  STAGING : do / monitor for state transition (btn)
+  STAGING : exit / tx state change to finishController
+}
+
+' ============================================================
+' COUNTDOWN
+' ============================================================
+state "COUNTDOWN" as COUNTDOWN {
+  COUNTDOWN : entry / reset(targetState/Mode, cdState)
+  COUNTDOWN : do / tickCountdownState()
+  COUNTDOWN : do / handleSerial()
+  COUNTDOWN : do / check for fouls
+  COUNTDOWN : do / updateLights()
+  COUNTDOWN : do / record start time
+  COUNTDOWN : do / manage gate status
+  COUNTDOWN : exit / tx state change to finishController
+}
+
+' ============================================================
+' RACING
+' ============================================================
+state "RACING" as RACING {
+  RACING : entry / reset(reactionTime, txState, targetState, foulMask)
+  RACING : do / check for rx raceState
+  RACING : do / calculate start/reaction times
+  RACING : do / tx reaction times
+  RACING : do / tx foul status
+  RACING : do / manage gate status
+}
+
+' ============================================================
+' COMPLETE
+' ============================================================
+state "COMPLETE" as COMPLETE {
+  COMPLETE : entry / reset(winnerBools, blink)
+  COMPLETE : do / check for rx winner
+  COMPLETE : do / check for rx raceState
+  COMPLETE : do / update winner lights
+  COMPLETE : do / tx start button status
+}
+
+' ============================================================
+' TESTING
+' ============================================================
+state "TESTING" as TESTING {
+  TESTING : entry / reset(carID, targetState/Mode, blinkState)
+  TESTING : entry / LIGHT_BL, LIGHT_BR
+  TESTING : entry / returnGates()
+  TESTING : do / monitor RFID for car ID  [future]
+  TESTING : do / tx car ID to finishController  [future]
+  TESTING : do / rx car ID confirmation  [future]
+  TESTING : do / monitor for state transition (btn)
+  TESTING : exit / tx state change to finishController
+}
+
+' ============================================================
+' TRANSITIONS
+' ============================================================
+IDLE      --> STAGING   : Button_Start
+IDLE      --> TESTING   : MSG_RACE_STATE(TEST)
+
+STAGING   --> COUNTDOWN : Button_Start\n[MSG_RACE_STATE(COUNTDOWN)]
+STAGING   --> IDLE      : MSG_RACE_STATE(IDLE)\n[Button_Mode]
+
+COUNTDOWN --> RACING    : cdState == CD_GO
+
+RACING    --> COMPLETE  : MSG_RACE_STATE(COMPLETE)
+
+COMPLETE  --> IDLE      : MSG_RACE_STATE(IDLE)\n[Button_Start]
+
+TESTING   --> IDLE      : MSG_RACE_STATE(IDLE)
+
+@enduml

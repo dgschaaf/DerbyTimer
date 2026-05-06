@@ -1,0 +1,102 @@
+@startuml seq_raceState_IDLE
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceParticipantBorderColor Navy
+skinparam sequenceParticipantBackgroundColor AliceBlue
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam sequenceGroupBorderThickness 1.5
+
+title Sequence: raceState(IDLE) [DerbyTrack]
+
+' ============================================================
+' PARTICIPANTS (only those active in this sequence)
+' ============================================================
+participant "User\nInput"        as UI
+participant "Button\nMode"       as BM
+participant "Start\nController"  as SC
+participant "Finish\nController" as FC
+participant "Race\nManager"      as RM
+participant "Tree\nLeft"         as TL
+participant "Tree\nRight"        as TR
+participant "Gate L"             as GL
+participant "Gate R"             as GR
+participant "RFID L"             as RFIDL
+participant "RFID R"             as RFIDR
+participant "Display\nLeft"      as DL
+participant "Display\nRight"     as DR
+
+' ============================================================
+' SECTION 1: Mode selection
+' ============================================================
+alt [user presses mode button]
+  BM -> SC : isModePressed()
+  SC -> SC : raceMode = next mode
+  SC -> FC : txRaceMode(raceMode)
+  FC --> SC : MSG_ACK
+  SC -> RM  : txRaceMode(raceMode)
+  RM --> SC : MSG_ACK
+  SC -> TL  : updateLights(raceMode)
+  SC -> TR  : updateLights(raceMode)
+
+else [user selects race mode on manager]
+  UI -> RM  : userMenu(raceMode)
+  RM -> SC  : txRaceMode(raceMode)
+  SC -> FC  : txRaceMode(raceMode)
+  FC --> SC : MSG_ACK
+  SC -> TL  : updateLights(raceMode)
+  SC -> TR  : updateLights(raceMode)
+  SC -> RM  : txRaceMode(raceMode)
+  RM --> SC : MSG_ACK
+end
+
+' ============================================================
+' SECTION 2: Start button → transition to STAGING
+' ============================================================
+BM -> SC : isStartPressed()
+SC -> SC : raceState = RACE_STAGING
+SC -> FC : txRaceState(raceState)
+FC --> SC : MSG_ACK
+SC -> RM  : txRaceState(raceState)
+RM --> SC : MSG_ACK
+
+' ============================================================
+' SECTION 3: Test mode commanded from manager
+' ============================================================
+alt [user commands test mode on manager]
+  UI -> RM  : userMenu(test)
+  RM -> SC  : txRaceState(raceTest)
+  SC --> RM : MSG_ACK
+  SC -> FC  : txRaceState(raceTest)
+  FC --> SC : MSG_ACK
+
+  SC -> DL    : disp(TestPattern)
+  SC -> DR    : disp(TestPattern)
+  SC -> TL    : disp(TestPattern)
+  SC -> TR    : disp(TestPattern)
+
+  SC -> RFIDL : checkComm(RFID)
+  SC -> RFIDR : checkComm(RFID)
+
+  SC -> FC    : txTestComplete(testResults)
+  FC --> SC   : MSG_ACK
+  FC -> RM    : txTestComplete(testResults)
+  RM --> FC   : MSG_ACK
+
+  FC -> SC    : checkComm(sensor)
+  SC -> FC    : checkComm(sensor)
+
+  SC -> DL    : disp(testResults)
+  SC -> DR    : disp(testResults)
+
+  SC -> GL    : Deactivate(Drop)
+  SC -> GR    : Deactivate(Drop)
+
+  DL -> DL    : clearDisplay
+  DR -> DR    : clearDisplay
+
+  RM -> DL    : display(Leader Board)
+  RM -> DL    : display(Next Race)
+  RM -> DR    : display(On Deck)
+end
+
+@enduml

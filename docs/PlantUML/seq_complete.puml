@@ -1,0 +1,91 @@
+@startuml seq_raceState_COMPLETE
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceParticipantBorderColor Navy
+skinparam sequenceParticipantBackgroundColor AliceBlue
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam sequenceGroupBorderThickness 1.5
+
+title Sequence: raceState(COMPLETE) [DerbyTrack]
+
+' ============================================================
+' PARTICIPANTS
+' ============================================================
+participant "Button\nStart"      as BS
+participant "Start\nController"  as SC
+participant "Finish\nController" as FC
+participant "Display\nLeft"      as DL
+participant "Display\nRight"     as DR
+participant "Race\nManager"      as RM
+participant "Projector"          as PROJ
+participant "Tree\nLeft"         as TL
+participant "Tree\nRight"        as TR
+
+' ============================================================
+' Display results — mode-dependent
+' ============================================================
+alt [raceMode(React) || raceMode(Pro)]
+  FC -> DL : display(reactTimeLeft)
+  FC -> DR : display(reactTimeRight)
+
+else [raceMode(GateDrop)]
+  FC -> DL : display(raceTimeLeft)
+  FC -> DR : display(raceTimeRight)
+end
+
+' ============================================================
+' Winner announcement
+' ============================================================
+alt [winner == Left]
+  SC -> TL : blink 3x (GO, FL)
+else [winner == Right]
+  SC -> TR : blink 3x (GO, FR)
+end
+
+' ============================================================
+' MSG_WINNER → results sent to Race Manager
+' ============================================================
+FC -> SC : MSG_WINNER
+SC --> FC : MSG_ACK
+
+note over FC, RM
+  future/BLE: race results (carTimeUs, reactionTimeUs,
+  foul, winner) transmitted to Race Manager via BLE
+  once GATT service is defined.
+end note
+
+RM -> RM : Append RaceTime to Track1:RacerID
+RM -> RM : Append RaceTime to Track2:RacerID
+
+RM -> PROJ : display(Race Results)
+
+' ============================================================
+' Instant replay
+' ============================================================
+note over PROJ
+  Playback: 4 seconds instant
+  replay at 1/2 speed
+end note
+
+PROJ -> PROJ : display(InstantReplay)
+
+' ============================================================
+' Start button advances displays — cycles result screens
+' ============================================================
+BS -> SC : checkAnalogButton(Start)
+SC -> FC : MSG_DISP_ADVANCE
+FC --> SC : ack
+
+BS -> SC : checkAnalogButton(Start)
+SC -> RM : MSG_DISP_ADVANCE
+RM --> SC : ack
+
+' ============================================================
+' Return to IDLE
+' ============================================================
+SC -> FC : MSG_RACE_STATE(IDLE)
+FC --> SC : ack
+SC -> RM : MSG_RACE_STATE(IDLE)
+RM --> SC : ack
+
+@enduml

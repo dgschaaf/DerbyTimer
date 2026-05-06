@@ -1,0 +1,100 @@
+@startuml finishController_STM
+skinparam state {
+  BackgroundColor AliceBlue
+  BorderColor Navy
+  FontSize 11
+  ArrowFontSize 10
+}
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+
+title finishController State Machine
+
+[*] --> Setup
+
+' ============================================================
+' SETUP
+' ============================================================
+state "Setup" as Setup {
+  Setup : entry / Serial.begin()
+  Setup : entry / setupDisplays()
+  Setup : entry / setupSensors()
+  Setup : entry / setupBluetooth()
+}
+
+Setup --> Idle : / void loop()
+
+' ============================================================
+' IDLE
+' ============================================================
+state "Idle" as Idle {
+  Idle : do / checkSerial()
+  Idle : do / checkBluetooth()
+  Idle : exit / comm(staging)
+}
+
+' ============================================================
+' STAGING
+' ============================================================
+state "Staging" as Staging {
+  Staging : do / handleSerial()
+  Staging : do / handleBluetooth()
+  Staging : exit / comm(start)
+}
+
+' ============================================================
+' COUNTDOWN
+' ============================================================
+state "Countdown" as Countdown {
+  Countdown : do / handleBluetooth()
+  Countdown : do / handleSerial()
+  Countdown : exit / comm(start)
+}
+
+' ============================================================
+' RACING
+' ============================================================
+state "Racing" as Racing {
+  Racing : do / timers()
+  Racing : do / checkSensor()
+  Racing : do / handleBluetooth()
+  Racing : do / handleSerial()
+  Racing : exit / comm(complete)
+}
+
+' ============================================================
+' RACE COMPLETE
+' ============================================================
+state "Race Complete" as RaceComplete {
+  RaceComplete : do / handleSerial()
+  RaceComplete : do / handleBluetooth()
+  RaceComplete : do / updateDisplays()
+  RaceComplete : exit / comm(idle)
+}
+
+' ============================================================
+' TESTING
+' ============================================================
+state "Testing" as Testing {
+  Testing : do / Test Sensors
+  Testing : do / Test Displays
+  Testing : do / Test Bluetooth
+}
+
+' ============================================================
+' TRANSITIONS
+' ============================================================
+Idle         --> Staging      : MSG_RACE_STATE(STAGING)
+Idle         --> Testing      : MSG_RACE_STATE(TEST)
+
+Staging      --> Countdown    : MSG_RACE_STATE(COUNTDOWN)
+
+Countdown    --> Racing       : MSG_RACE_STATE(RACING)
+
+Racing       --> RaceComplete : Sensor(L) && Sensor(R)
+
+RaceComplete --> Idle         : MSG_DISP_ADVANCE
+
+Testing      --> Idle         : Test_Complete
+
+@enduml
