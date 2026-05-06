@@ -1,0 +1,89 @@
+@startuml component_modules
+skinparam component {
+  BackgroundColor AliceBlue
+  BorderColor Navy
+  FontSize 10
+}
+skinparam package {
+  BackgroundColor WhiteSmoke
+  BorderColor DarkSlateGray
+  FontSize 11
+}
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam ArrowColor Navy
+
+title DerbyTimer Module Dependencies
+
+' ============================================================
+' SHARED LIBRARY  (linked into both controllers)
+' ============================================================
+package "Shared Library\nfirmware/lib/shared/" as Shared {
+  component [globals.h\nraceState, raceMode,\ncountdownState enums\nbitmask defines] as Globals
+  component [serialComm\nUART framing, ACK/NACK retry\nSerialRxState rx struct\ntxRaceState, txWinner, ...] as SerComm
+  SerComm --> Globals : uses enums\n+ rx struct
+}
+
+' ============================================================
+' START CONTROLLER
+' ============================================================
+package "Start Controller\nfirmware/startController/\nArduino Nano  ATmega328P" as SC_PKG {
+  component [startController\nstateMachine + modeMachine\nrace orchestration\nPendingMsgs sequencing] as SC
+  component [lights\n74HC595 shift register\nbitmask patterns\nBlinkState machine] as Lights
+  component [gates\nelectromagnet (D4, D7)\nsolenoid (D6)\ngateStatusInfo tracking] as Gates
+  component [buttons\nStart (A6), Mode (A7) analog\nLeft (D18), Right (D19) digital\ndebounce + caching] as Buttons
+  component [RFID\nMFRC522 via SPI\nRFIDReader struct] as RFID
+  note bottom of RFID
+    future: not yet compiled
+    or wired into build
+  end note
+}
+
+' ============================================================
+' FINISH CONTROLLER
+' ============================================================
+package "Finish Controller\nfirmware/finishController/\nArduino Nano 33 BLE  nRF52840" as FC_PKG {
+  component [finishController\nstateMachine\nrace result computation\ndisplay sequencing] as FC
+  component [sensors\nSE61 optical via ISR\narmSensors / disarmSensors\nmin/max time filtering] as Sensors
+  component [display\n74HC238 digit demux\nMC14543B BCD driver\n5-digit 7-seg per lane] as Display
+}
+
+' ============================================================
+' START CONTROLLER DEPENDENCIES
+' ============================================================
+SC --> Lights   : uses
+SC --> Gates    : uses
+SC --> Buttons  : uses
+SC --> SerComm  : uses
+SC --> Globals  : uses
+SC ..> RFID     : uses [future]
+
+' ============================================================
+' FINISH CONTROLLER DEPENDENCIES
+' ============================================================
+FC --> Sensors  : uses
+FC --> Display  : uses
+FC --> SerComm  : uses
+FC --> Globals  : uses
+
+' ============================================================
+' UART LINK between controllers
+' (both sides compile the same serialComm.cpp)
+' ============================================================
+SC -[#DarkGreen,thickness=2]-> FC : SC to FC\nMSG_RACE_MODE\nMSG_RACE_STATE\nMSG_RACE_START\nMSG_LEFT/RIGHT_REACT\nMSG_FOUL\nMSG_DISP_ADVANCE
+
+FC -[#DarkGreen,thickness=2]-> SC : FC to SC\nMSG_WINNER\nMSG_RACE_STATE\nMSG_ACK / MSG_NACK
+
+note bottom of SerComm
+  UART 115200 baud
+  3 retries, 50 ms timeout each
+  ACK/NACK confirmed delivery
+end note
+
+' ============================================================
+' FUTURE: BLE to Race Manager
+' ============================================================
+component [Race Manager\nRaspberry Pi\nBLE central] as RM #line.dashed
+FC ..> RM : BLE [future]\nnRF52840 radio
+
+@enduml

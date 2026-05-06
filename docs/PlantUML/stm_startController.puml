@@ -10,6 +10,11 @@ skinparam noteBorderColor DarkOrange
 
 title startController State Machine
 
+note as N_RX
+  rxSerial() is called at the top of every loop() iteration,
+  in every state. It is not shown on individual states.
+end note
+
 [*] --> Setup
 
 ' ============================================================
@@ -19,28 +24,34 @@ state "Setup" as Setup {
   Setup : do / setupSerial()
   Setup : do / setupLights()
   Setup : do / setupGates()
-  Setup : do / setupRFID()
   Setup : do / setupButtons()
 }
 
 Setup --> IDLE : / void loop()
 
 ' ============================================================
-' IDLE  (composite — raceMode sub-states)
+' IDLE  (composite: raceMode sub-states managed by modeMachine)
 ' ============================================================
 state "IDLE" as IDLE {
-  IDLE : entry / reset(cdState, lights, targetState/Mode, buttons)
-  IDLE : entry / dropGates()
-  IDLE : do / monitor mode transition (button, rx)
-  IDLE : do / monitor state transition (button, state)
-  IDLE : exit / tx state change to finishController
+  IDLE : entry / cd.state = CD_IDLE
+  IDLE : entry / updateLights(LIGHT_OFF)
+  IDLE : entry / dropGate(gateL), dropGate(gateR)
+  IDLE : do / updateBlink()
+  IDLE : do / handleModeChanges()
+  IDLE : do / if Start pressed (not during blink) then stm.target = RACE_STAGING
+  IDLE : do / stm.rxTransition(rx.State)
+  IDLE : do / stm.selfTransition(stm.target)
 
   state "GATEDROP\n[LIGHT_Y1]" as M_GD
   state "REACTION\n[LIGHT_Y2]"  as M_RE
   state "PRO\n[LIGHT_Y3]"       as M_PR
   state "DIAL-IN\n[LIGHT_GO]"   as M_DI #line.dashed
 
-  note right of M_DI : future: not reachable\nvia Button_Mode cycle
+  note right of M_DI
+    future: MODE_DIALIIN is defined
+    but the button cycle skips it.
+    nextMode(): PRO -> GATEDROP.
+  end note
 
   [*]   --> M_GD
   M_GD --> M_RE : Button_Mode
@@ -48,86 +59,121 @@ state "IDLE" as IDLE {
   M_PR --> M_GD : Button_Mode
 }
 
+note right of IDLE
+  modeMachine (mdm) runs inside IDLE.
+  Each mode change blinks the new
+  mode's indicator light 3x (250 ms).
+  Mode changes are coordinated with
+  finishController via MSG_RACE_MODE.
+end note
+
 ' ============================================================
 ' STAGING
 ' ============================================================
 state "STAGING" as STAGING {
-  STAGING : entry / reset(carID, targetState/Mode, blinkState)
-  STAGING : entry / LIGHT_BL, LIGHT_BR
   STAGING : entry / returnGates()
+  STAGING : entry / updateLights(LIGHT_BL | LIGHT_BR)
+  STAGING : entry / blinkState.active = false
+  STAGING : do / updateBlink()
+  STAGING : do / if gateStatus.returnActive then returnGates()
   STAGING : do / monitor RFID for car ID  [future]
   STAGING : do / tx car ID to finishController  [future]
   STAGING : do / rx car ID confirmation  [future]
-  STAGING : do / monitor for state transition (btn)
-  STAGING : exit / tx state change to finishController
+  STAGING : do / if Start pressed (not during blink) then stm.target = RACE_COUNTDOWN
+  STAGING : do / if Mode pressed (not during blink) then stm.target = RACE_IDLE
+  STAGING : do / stm.selfTransition(stm.target)
 }
 
 ' ============================================================
 ' COUNTDOWN
 ' ============================================================
 state "COUNTDOWN" as COUNTDOWN {
-  COUNTDOWN : entry / reset(targetState/Mode, cdState)
-  COUNTDOWN : do / tickCountdownState()
-  COUNTDOWN : do / handleSerial()
-  COUNTDOWN : do / check for fouls
-  COUNTDOWN : do / updateLights()
-  COUNTDOWN : do / record start time
-  COUNTDOWN : do / manage gate status
-  COUNTDOWN : exit / tx state change to finishController
+  COUNTDOWN : entry / cd.state = CD_STAGED, startDelay = 0
+  COUNTDOWN : do / handleEarlyStarts(tNow, mode)  [reaction modes only]
+  COUNTDOWN : do / cd.state = tickCountdownState(mode, cd.state)
+  COUNTDOWN : do / if CD_GO then handleCountdownGoActions()
+  COUNTDOWN : do / updateLights(buildLightConfig(cd.state, FL, FR, mode))
+  COUNTDOWN : do / stm.selfTransition(stm.target)
 }
+
+note right of COUNTDOWN
+  handleCountdownGoActions() at CD_GO:
+  . raceStartUs = micros()
+  . stm.target = RACE_RACING
+  . GateDrop mode: dropGate(gateL+R),
+      leftStartUs = rightStartUs = raceStartUs
+  . Reaction modes: gates stay up;
+      drivers hold buttons to release in RACING
+  . txRaceStart(0b0001) sent to finishController
+      (retry up to 3x, 50 ms timeout each)
+end note
 
 ' ============================================================
 ' RACING
 ' ============================================================
 state "RACING" as RACING {
-  RACING : entry / reset(reactionTime, txState, targetState, foulMask)
-  RACING : do / check for rx raceState
-  RACING : do / calculate start/reaction times
-  RACING : do / tx reaction times
-  RACING : do / tx foul status
-  RACING : do / manage gate status
+  RACING : entry / pending = {leftReact=false, rightReact=false, foulStatus=true}
+  RACING : entry / build foulMask from raceResults.leftFoul + rightFoul
+  RACING : entry / resetTxState for FOUL, LEFT_REACT, RIGHT_REACT
+  RACING : do / handleTrackTriggers()  [reaction modes: btn press -> dropGate + record carStartUs]
+  RACING : do / calcReactionTimes() once gate drops
+  RACING : do / drain PendingMsgs one at a time: MSG_FOUL then MSG_LEFT_REACT then MSG_RIGHT_REACT
+  RACING : do / stm.rxTransition(rx.State)  [blocked until all PendingMsgs sent]
 }
+
+note right of RACING
+  PendingMsgs guard: stm.rxTransition()
+  is not called until foulStatus,
+  leftReact, and rightReact are all
+  TX_ACKED or timed out. This prevents
+  a premature COMPLETE transition before
+  the finishController has reaction data.
+end note
 
 ' ============================================================
 ' COMPLETE
 ' ============================================================
 state "COMPLETE" as COMPLETE {
-  COMPLETE : entry / reset(winnerBools, blink)
-  COMPLETE : do / check for rx winner
-  COMPLETE : do / check for rx raceState
-  COMPLETE : do / update winner lights
-  COMPLETE : do / tx start button status
+  COMPLETE : entry / rx.LeftWin = rx.RightWin = rx.Tie = false
+  COMPLETE : entry / winLightsPend = true
+  COMPLETE : entry / blinkState.active = false
+  COMPLETE : do / handleDisplayAdvance()
+  COMPLETE : do / when MSG_WINNER rx: startBlink(winner pattern), winLightsPend = false
+  COMPLETE : do / if !winLightsPend AND !updateBlink() then stm.rxTransition(rx.State)
 }
 
+note right of COMPLETE
+  Winner blink (driven by MSG_WINNER from finishController):
+  . Left wins:  startBlink(GO|FR, FR, 3x, 250ms, GO|FR)
+  . Right wins: startBlink(GO|FL, FL, 3x, 250ms, GO|FL)
+  . Tie:        startBlink(GO, OFF, 3x, 250ms, GO)
+  Return to IDLE is driven by finishController
+  sending MSG_RACE_STATE(IDLE).
+end note
+
 ' ============================================================
-' TESTING
+' TESTING  (stub: immediately self-transitions to IDLE)
 ' ============================================================
 state "TESTING" as TESTING {
-  TESTING : entry / reset(carID, targetState/Mode, blinkState)
-  TESTING : entry / LIGHT_BL, LIGHT_BR
-  TESTING : entry / returnGates()
-  TESTING : do / monitor RFID for car ID  [future]
-  TESTING : do / tx car ID to finishController  [future]
-  TESTING : do / rx car ID confirmation  [future]
-  TESTING : do / monitor for state transition (btn)
-  TESTING : exit / tx state change to finishController
+  TESTING : entry / stm.selfTransition(RACE_IDLE)
+  TESTING : note: no test logic currently implemented
 }
 
 ' ============================================================
 ' TRANSITIONS
 ' ============================================================
-IDLE      --> STAGING   : Button_Start
+IDLE      --> STAGING   : Button_Start\n(not during blink)
 IDLE      --> TESTING   : MSG_RACE_STATE(TEST)
 
-STAGING   --> COUNTDOWN : Button_Start\n[MSG_RACE_STATE(COUNTDOWN)]
-STAGING   --> IDLE      : MSG_RACE_STATE(IDLE)\n[Button_Mode]
+STAGING   --> COUNTDOWN : Button_Start\n[MSG_RACE_STATE(COUNTDOWN) TX_ACKED]
+STAGING   --> IDLE      : Button_Mode\n[MSG_RACE_STATE(IDLE) TX_ACKED]
 
-COUNTDOWN --> RACING    : cdState == CD_GO
+COUNTDOWN --> RACING    : cdState == CD_GO\n[MSG_RACE_START sent]
 
-RACING    --> COMPLETE  : MSG_RACE_STATE(COMPLETE)
+RACING    --> COMPLETE  : MSG_RACE_STATE(COMPLETE)\n[after all PendingMsgs drained]
 
-COMPLETE  --> IDLE      : MSG_RACE_STATE(IDLE)\n[Button_Start]
+COMPLETE  --> IDLE      : MSG_RACE_STATE(IDLE)\n[sent by finishController]
 
-TESTING   --> IDLE      : MSG_RACE_STATE(IDLE)
+TESTING   --> IDLE      : immediate (entry self-transition)
 
 @enduml

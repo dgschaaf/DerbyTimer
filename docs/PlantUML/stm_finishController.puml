@@ -10,16 +10,24 @@ skinparam noteBorderColor DarkOrange
 
 title finishController State Machine
 
+note as N_RX
+  rxSerial() is called at the top of every loop() iteration,
+  in every state. It is not shown on individual states.
+  All state transitions are driven by rxSerial() updating rx.State,
+  except Racing->Complete which is self-driven by sensor data.
+end note
+
 [*] --> Setup
 
 ' ============================================================
 ' SETUP
 ' ============================================================
 state "Setup" as Setup {
-  Setup : entry / Serial.begin()
-  Setup : entry / setupDisplays()
+  Setup : entry / setupSerial()
   Setup : entry / setupSensors()
-  Setup : entry / setupBluetooth()
+  Setup : entry / setupDisplay()
+  Setup : entry / stm = {RACE_IDLE, entry=true}
+  Setup : entry / currentMode = MODE_GATEDROP
 }
 
 Setup --> Idle : / void loop()
@@ -28,73 +36,123 @@ Setup --> Idle : / void loop()
 ' IDLE
 ' ============================================================
 state "Idle" as Idle {
-  Idle : do / checkSerial()
-  Idle : do / checkBluetooth()
-  Idle : exit / comm(staging)
+  Idle : entry / clearDisplay(left), clearDisplay(right)
+  Idle : do / if rx.Mode != currentMode then currentMode = rx.Mode
+  Idle : do / stm.rxTransition(rx.State)
 }
+
+note right of Idle
+  Mode sync: finishController accepts mode
+  updates from startController passively.
+  No explicit Bluetooth notification yet.
+  [future: notifyBLEMode(currentMode)]
+end note
 
 ' ============================================================
 ' STAGING
 ' ============================================================
 state "Staging" as Staging {
-  Staging : do / handleSerial()
-  Staging : do / handleBluetooth()
-  Staging : exit / comm(start)
+  Staging : entry / (no action)
+  Staging : do / stm.rxTransition(rx.State)
 }
+
+note right of Staging
+  Finish controller is fully reactive in STAGING.
+  It holds state and waits for MSG_RACE_STATE(COUNTDOWN)
+  from startController. No local actions are taken.
+end note
 
 ' ============================================================
 ' COUNTDOWN
 ' ============================================================
 state "Countdown" as Countdown {
-  Countdown : do / handleBluetooth()
-  Countdown : do / handleSerial()
-  Countdown : exit / comm(start)
+  Countdown : entry / rx.RaceStart = false
+  Countdown : entry / race.raceStartUs = 0
+  Countdown : do / if rx.RaceStart AND raceStartUs == 0:
+  Countdown : do /   race.raceStartUs = micros()
+  Countdown : do /   armSensors(race.raceStartUs)
+  Countdown : do / stm.rxTransition(rx.State)
 }
+
+note right of Countdown
+  Sensors are armed here on MSG_RACE_START,
+  before the RACING state begins. This minimises
+  the window between GO and sensor readiness.
+  armSensors() resets ISR flags and attaches
+  interrupts on the configured edge (RISING).
+end note
 
 ' ============================================================
 ' RACING
 ' ============================================================
 state "Racing" as Racing {
-  Racing : do / timers()
-  Racing : do / checkSensor()
-  Racing : do / handleBluetooth()
-  Racing : do / handleSerial()
-  Racing : exit / comm(complete)
+  Racing : entry / reset race.leftRecorded, rightRecorded, leftTimeUs, rightTimeUs
+  Racing : entry / reset rx.LeftReactionTime = rx.RightReactionTime = -1
+  Racing : entry / reset rx.LeftFoul = rx.RightFoul = false
+  Racing : entry / if raceStartUs == 0 then armSensors(micros())
+  Racing : do / handleSensors()
+  Racing : do / handleRxReaction()
+  Racing : do / if leftRecorded AND rightRecorded then stm.target = RACE_COMPLETE
+  Racing : do / stm.selfTransition(stm.target)
+  Racing : exit / disarmSensors()
 }
+
+note right of Racing
+  handleSensors(): polls ISR volatile flags.
+  Records elapsed time (micros() - raceStartUs)
+  or maxRaceTimeUs (10 s) if lane times out.
+  handleRxReaction(): reads rx.LeftReactionTime
+  and rx.RightReactionTime (int32_t, -1 = not yet rx'd)
+  and stores into leftResults / rightResults structs.
+end note
 
 ' ============================================================
 ' RACE COMPLETE
 ' ============================================================
 state "Race Complete" as RaceComplete {
-  RaceComplete : do / handleSerial()
-  RaceComplete : do / handleBluetooth()
-  RaceComplete : do / updateDisplays()
-  RaceComplete : exit / comm(idle)
+  RaceComplete : entry / computeRaceTimes()
+  RaceComplete : entry / displayCarTimes()
+  RaceComplete : entry / txWinPending = true, needReact = false
+  RaceComplete : do / transmitWinnerToSC()  [retries until TX_ACKED or TX_FAILED]
+  RaceComplete : do / if DisplayAdvanceFlag AND needReact: displayReactionTimes(), needReact = false
+  RaceComplete : do / if DisplayAdvanceFlag AND !needReact: stm.target = RACE_IDLE
+  RaceComplete : do / stm.selfTransition(stm.target)
+  RaceComplete : exit / reset leftResults, rightResults structs
 }
 
+note right of RaceComplete
+  computeRaceTimes():
+  carTimeUs = raceTimeUs + (foul ? +1 : -1) * reactionTimeUs
+  A foul (false start) adds reaction time as a penalty.
+  A clean start subtracts reaction time as a reward.
+  Winner: fastest carTimeUs with no foul.
+  Both foul -> neither wins (tie, winnerMask bit2).
+  MSG_WINNER bitmask: bit0=left, bit1=right, bit2=tie.
+end note
+
 ' ============================================================
-' TESTING
+' TESTING  (stub: immediately self-transitions to IDLE)
 ' ============================================================
 state "Testing" as Testing {
-  Testing : do / Test Sensors
-  Testing : do / Test Displays
-  Testing : do / Test Bluetooth
+  Testing : entry / stm.target = RACE_IDLE
+  Testing : do / stm.selfTransition(stm.target)
+  Testing : note: no test logic currently implemented
 }
 
 ' ============================================================
 ' TRANSITIONS
 ' ============================================================
-Idle         --> Staging      : MSG_RACE_STATE(STAGING)
-Idle         --> Testing      : MSG_RACE_STATE(TEST)
+Idle        --> Staging      : MSG_RACE_STATE(STAGING)
+Idle        --> Testing      : MSG_RACE_STATE(TEST)
 
-Staging      --> Countdown    : MSG_RACE_STATE(COUNTDOWN)
+Staging     --> Countdown    : MSG_RACE_STATE(COUNTDOWN)
 
-Countdown    --> Racing       : MSG_RACE_STATE(RACING)
+Countdown   --> Racing       : MSG_RACE_STATE(RACING)
 
-Racing       --> RaceComplete : Sensor(L) && Sensor(R)
+Racing      --> RaceComplete : leftRecorded AND rightRecorded\n[sensor ISR or 10 s timeout]
 
-RaceComplete --> Idle         : MSG_DISP_ADVANCE
+RaceComplete --> Idle        : MSG_DISP_ADVANCE\n[when !needReact -> stm.selfTransition(IDLE)]
 
-Testing      --> Idle         : Test_Complete
+Testing     --> Idle         : immediate (entry self-transition)
 
 @enduml

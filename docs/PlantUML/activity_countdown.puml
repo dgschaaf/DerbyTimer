@@ -1,0 +1,146 @@
+@startuml activity_countdown
+skinparam activityBackgroundColor AliceBlue
+skinparam activityBorderColor Navy
+skinparam activityFontSize 11
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam arrowColor Navy
+skinparam conditionStyle diamond
+
+title Activity: RACE_COUNTDOWN [startController]
+title tickCountdownState() + handleEarlyStarts() + handleCountdownGoActions()
+
+start
+
+:COUNTDOWN entry:
+cd.state = CD_STAGED
+startDelay = 0;
+
+note right
+  raceResults.leftFoul and
+  raceResults.rightFoul carry
+  over from STAGING (always false
+  unless RFID future feature flags them).
+  They are cleared on RACING entry.
+end note
+
+' ============================================================
+' Stage initialisation — mode determines jump point and delay
+' ============================================================
+if (raceMode == MODE_PRO?) then (yes)
+  :cd.delay = 400 ms
+cd.state = CD_Y1;
+  note right
+    Pro Tree jumps directly to Y1,
+    skipping Y2 and Y3. buildLightConfig()
+    for CD_Y1 + PRO returns
+    BL|BR|Y3|Y2|Y1 (all three yellows).
+  end note
+else (no — GateDrop, Reaction, Dial-In)
+  :cd.delay = 500 ms
+cd.state = CD_Y3;
+end if
+
+:cd.timer = millis()
+updateLights(buildLightConfig(cd.state, FL, FR, mode));
+
+' ============================================================
+' Main countdown loop — runs every loop() iteration
+' ============================================================
+repeat
+
+  ' Early-start monitoring (reaction modes only)
+  if (raceMode != GateDrop?) then (yes — Reaction or Pro)
+
+    if (isLeftPressed() AND gateStatus.leftUp?) then (yes)
+      :raceTime.leftStartUs = micros()
+raceResults.leftFoul = true
+dropGate(gateL);
+      note right
+        Early start recorded.
+        Gate drops immediately.
+        Foul flag set for this lane.
+        carStartUs < raceStartUs
+        -> reactionTime will be added
+        as a penalty.
+      end note
+    endif
+
+    if (isRightPressed() AND gateStatus.rightUp?) then (yes)
+      :raceTime.rightStartUs = micros()
+raceResults.rightFoul = true
+dropGate(gateR);
+    endif
+
+  endif
+
+  ' Tick the countdown timer
+  if (millis() - cd.timer >= cd.delay?) then (yes — stage elapsed)
+
+    if (cd.state == CD_Y3?) then (yes)
+      :cd.state = CD_Y2;
+    elseif (cd.state == CD_Y2?) then (yes)
+      :cd.state = CD_Y1;
+    elseif (cd.state == CD_Y1?) then (yes)
+      :cd.state = CD_GO;
+    else (no change)
+    endif
+
+    :updateLights(buildLightConfig(cd.state, FL, FR, mode))
+cd.timer = millis();
+
+  endif
+
+repeat while (cd.state != CD_GO?) is (not GO yet)
+
+' ============================================================
+' GO reached — handleCountdownGoActions()
+' ============================================================
+-> GO reached;
+
+:raceStartUs = micros()
+stm.target = RACE_RACING;
+
+note right
+  raceStartUs is the reference point
+  for all reaction time calculations.
+  stm.target is set here; the actual
+  stm.selfTransition() call happens
+  later in the same loop() iteration.
+end note
+
+if (raceMode == GateDrop?) then (yes)
+  :raceTime.leftStartUs  = raceStartUs
+raceTime.rightStartUs = raceStartUs
+dropGate(gateL)
+dropGate(gateR);
+  note right
+    GateDrop: both gates release at GO.
+    No reaction time — carStartUs == raceStartUs
+    so reactionTimeUs = 0 for both lanes.
+  end note
+else (Reaction / Pro — gates still up)
+  note right
+    Gates stay up. Drivers hold buttons.
+    carStartUs is captured in RACING state
+    when each driver releases their button.
+  end note
+endif
+
+:txRaceStart(0b0001) -> finishController
+[retry up to 3x, 50 ms timeout];
+
+note right
+  finishController uses MSG_RACE_START
+  to capture raceStartUs = micros()
+  and arm the finish sensors.
+  This happens in COUNTDOWN state
+  before stm transitions to RACING.
+end note
+
+:stm.selfTransition(RACE_RACING)
+-> transition to RACE_RACING;
+
+stop
+
+@enduml

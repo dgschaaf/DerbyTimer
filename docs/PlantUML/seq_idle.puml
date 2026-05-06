@@ -9,13 +9,13 @@ skinparam sequenceGroupBorderThickness 1.5
 title Sequence: raceState(IDLE) [DerbyTrack]
 
 ' ============================================================
-' PARTICIPANTS (only those active in this sequence)
+' PARTICIPANTS
 ' ============================================================
 participant "User\nInput"        as UI
 participant "Button\nMode"       as BM
 participant "Start\nController"  as SC
 participant "Finish\nController" as FC
-participant "Race\nManager"      as RM
+participant "Race\nManager"      as RM  #line.dashed
 participant "Tree\nLeft"         as TL
 participant "Tree\nRight"        as TR
 participant "Gate L"             as GL
@@ -25,78 +25,94 @@ participant "RFID R"             as RFIDR
 participant "Display\nLeft"      as DL
 participant "Display\nRight"     as DR
 
+note over RM
+  future: Race Manager (RPi)
+  communicates via BLE through
+  finishController. Not yet implemented.
+end note
+
 ' ============================================================
 ' SECTION 1: Mode selection
 ' ============================================================
 alt [user presses mode button]
   BM -> SC : isModePressed()
-  SC -> SC : raceMode = next mode
+  SC -> SC : mdm.nextMode() -> raceMode = next mode
   SC -> FC : txRaceMode(raceMode)
   FC --> SC : MSG_ACK
-  SC -> RM  : txRaceMode(raceMode)
-  RM --> SC : MSG_ACK
-  SC -> TL  : updateLights(raceMode)
-  SC -> TR  : updateLights(raceMode)
+  SC -> TL  : updateLights(mode pattern, blink 3x)
+  SC -> TR  : updateLights(mode pattern, blink 3x)
 
 else [user selects race mode on manager]
+  note over UI, RM : future/BLE — not yet implemented
   UI -> RM  : userMenu(raceMode)
-  RM -> SC  : txRaceMode(raceMode)
-  SC -> FC  : txRaceMode(raceMode)
-  FC --> SC : MSG_ACK
-  SC -> TL  : updateLights(raceMode)
-  SC -> TR  : updateLights(raceMode)
-  SC -> RM  : txRaceMode(raceMode)
-  RM --> SC : MSG_ACK
+  RM -> FC  : BLE mode notification  [future]
+  FC -> SC  : txRaceMode(raceMode)
+  SC --> FC : MSG_ACK
+  SC -> TL  : updateLights(mode pattern, blink 3x)
+  SC -> TR  : updateLights(mode pattern, blink 3x)
 end
 
+note over TL, TR
+  Both trees driven by one 74HC595 shift register.
+  updateLights() sends a single 8-bit pattern
+  that controls all tree LEDs simultaneously.
+end note
+
 ' ============================================================
-' SECTION 2: Start button → transition to STAGING
+' SECTION 2: Start button -> transition to STAGING
 ' ============================================================
 BM -> SC : isStartPressed()
-SC -> SC : raceState = RACE_STAGING
-SC -> FC : txRaceState(raceState)
+SC -> SC : stm.target = RACE_STAGING
+SC -> FC  : txRaceState(RACE_STAGING)
 FC --> SC : MSG_ACK
-SC -> RM  : txRaceState(raceState)
-RM --> SC : MSG_ACK
 
 ' ============================================================
-' SECTION 3: Test mode commanded from manager
+' SECTION 3: Test mode [future design intent — not yet implemented]
 ' ============================================================
 alt [user commands test mode on manager]
-  UI -> RM  : userMenu(test)
-  RM -> SC  : txRaceState(raceTest)
-  SC --> RM : MSG_ACK
-  SC -> FC  : txRaceState(raceTest)
-  FC --> SC : MSG_ACK
+  note over SC, DR
+    The following test sequence is DESIGN INTENT.
+    Currently RACE_TEST immediately self-transitions
+    back to RACE_IDLE in both controllers.
+    Test logic is not yet implemented.
+  end note
 
-  SC -> DL    : disp(TestPattern)
-  SC -> DR    : disp(TestPattern)
-  SC -> TL    : disp(TestPattern)
-  SC -> TR    : disp(TestPattern)
+  UI -> RM  : userMenu(test)  [future]
+  RM -> FC  : BLE test command  [future]
+  FC -> SC  : txRaceState(RACE_TEST)
+  SC --> FC : MSG_ACK
 
-  SC -> RFIDL : checkComm(RFID)
-  SC -> RFIDR : checkComm(RFID)
+  SC -> TL    : disp(TestPattern)  [future]
+  SC -> TR    : disp(TestPattern)  [future]
 
-  SC -> FC    : txTestComplete(testResults)
+  note over RFIDL, RFIDR
+    future: RFID comm check not yet implemented
+  end note
+  SC -> RFIDL : checkComm(RFID)  [future]
+  SC -> RFIDR : checkComm(RFID)  [future]
+
+  SC -> FC    : txTestComplete(testResults)  [future]
   FC --> SC   : MSG_ACK
-  FC -> RM    : txTestComplete(testResults)
-  RM --> FC   : MSG_ACK
 
-  FC -> SC    : checkComm(sensor)
-  SC -> FC    : checkComm(sensor)
+  note over FC, DR
+    Displays are wired exclusively to finishController GPIO.
+    startController cannot reach them directly.
+  end note
+  FC -> SC    : checkComm(sensor)  [future]
+  SC -> FC    : checkComm(sensor)  [future]
 
-  SC -> DL    : disp(testResults)
-  SC -> DR    : disp(testResults)
+  FC -> DL    : disp(testResults)  [future]
+  FC -> DR    : disp(testResults)  [future]
 
-  SC -> GL    : Deactivate(Drop)
-  SC -> GR    : Deactivate(Drop)
+  SC -> GL    : Deactivate(Drop)  [future]
+  SC -> GR    : Deactivate(Drop)  [future]
 
-  DL -> DL    : clearDisplay
-  DR -> DR    : clearDisplay
+  DL -> DL    : clearDisplay  [future]
+  DR -> DR    : clearDisplay  [future]
 
-  RM -> DL    : display(Leader Board)
-  RM -> DL    : display(Next Race)
-  RM -> DR    : display(On Deck)
+  RM -> DL    : display(Leader Board)  [future/BLE]
+  RM -> DL    : display(Next Race)     [future/BLE]
+  RM -> DR    : display(On Deck)       [future/BLE]
 end
 
 @enduml

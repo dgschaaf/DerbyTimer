@@ -14,78 +14,112 @@ title Sequence: raceState(COMPLETE) [DerbyTrack]
 participant "Button\nStart"      as BS
 participant "Start\nController"  as SC
 participant "Finish\nController" as FC
+participant "Tree\nLights\n(74HC595)" as TREE
 participant "Display\nLeft"      as DL
 participant "Display\nRight"     as DR
-participant "Race\nManager"      as RM
-participant "Projector"          as PROJ
-participant "Tree\nLeft"         as TL
-participant "Tree\nRight"        as TR
+participant "Race\nManager"      as RM   #line.dashed
+participant "Projector"          as PROJ #line.dashed
+
+note over RM, PROJ
+  future: Race Manager (RPi via BLE) and Projector
+  are not yet implemented.
+end note
 
 ' ============================================================
-' Display results — mode-dependent
+' Display results on finish controller — mode-dependent
 ' ============================================================
-alt [raceMode(React) || raceMode(Pro)]
-  FC -> DL : display(reactTimeLeft)
-  FC -> DR : display(reactTimeRight)
+alt [raceMode != GateDrop (Reaction or Pro)]
+  FC -> DL : updateDisplay(leftResults.carTimeUs)
+  FC -> DR : updateDisplay(rightResults.carTimeUs)
 
-else [raceMode(GateDrop)]
-  FC -> DL : display(raceTimeLeft)
-  FC -> DR : display(raceTimeRight)
+else [raceMode == GateDrop]
+  FC -> DL : updateDisplay(leftResults.carTimeUs)
+  FC -> DR : updateDisplay(rightResults.carTimeUs)
 end
 
-' ============================================================
-' Winner announcement
-' ============================================================
-alt [winner == Left]
-  SC -> TL : blink 3x (GO, FL)
-else [winner == Right]
-  SC -> TR : blink 3x (GO, FR)
-end
+note over DL, DR
+  In Reaction/Pro modes needReact = true.
+  A second MSG_DISP_ADVANCE will display
+  reaction times before returning to IDLE.
+  In GateDrop mode needReact = false;
+  first DISP_ADVANCE returns directly to IDLE.
+end note
 
 ' ============================================================
-' MSG_WINNER → results sent to Race Manager
+' Finish controller computes result and sends MSG_WINNER to SC
 ' ============================================================
-FC -> SC : MSG_WINNER
+FC -> FC : computeRaceTimes()
+FC -> SC : MSG_WINNER (winnerMask: bit0=L, bit1=R, bit2=tie)
 SC --> FC : MSG_ACK
 
+' ============================================================
+' Start controller drives winner lights from MSG_WINNER
+' ============================================================
+alt [rx.LeftWin]
+  SC -> TREE : startBlink(GO|FR, FR, 3x 250ms, settle GO|FR)
+  note right of TREE
+    Left wins: green lights with
+    right red (loser) flashing.
+  end note
+else [rx.RightWin]
+  SC -> TREE : startBlink(GO|FL, FL, 3x 250ms, settle GO|FL)
+  note right of TREE
+    Right wins: green lights with
+    left red (loser) flashing.
+  end note
+else [rx.Tie]
+  SC -> TREE : startBlink(GO, OFF, 3x 250ms, settle GO)
+end
+
+' ============================================================
+' Race results forwarded to Race Manager [future/BLE]
+' ============================================================
 note over FC, RM
   future/BLE: race results (carTimeUs, reactionTimeUs,
   foul, winner) transmitted to Race Manager via BLE
-  once GATT service is defined.
+  once the GATT service is defined.
 end note
 
-RM -> RM : Append RaceTime to Track1:RacerID
-RM -> RM : Append RaceTime to Track2:RacerID
+RM -> PROJ : display(Race Results)  [future]
 
-RM -> PROJ : display(Race Results)
-
-' ============================================================
-' Instant replay
-' ============================================================
 note over PROJ
-  Playback: 4 seconds instant
-  replay at 1/2 speed
+  future: 4-second instant replay
+  at 1/2 speed from camera buffer.
+end note
+PROJ -> PROJ : display(InstantReplay)  [future]
+
+' ============================================================
+' Start button advances displays — cycles through result screens
+' MSG_DISP_ADVANCE #1: show reaction times (if Reaction/Pro mode)
+' ============================================================
+BS -> SC : isStartPressed()
+SC -> FC : MSG_DISP_ADVANCE
+FC --> SC : MSG_ACK
+
+note over FC, DR
+  If needReact == true:
+  FC shows reaction times on both displays.
+  needReact = false after this advance.
 end note
 
-PROJ -> PROJ : display(InstantReplay)
+FC -> DL : updateDisplay(leftResults.reactionTimeUs)  [if needReact]
+FC -> DR : updateDisplay(rightResults.reactionTimeUs)  [if needReact]
 
 ' ============================================================
-' Start button advances displays — cycles result screens
+' MSG_DISP_ADVANCE #2 (or #1 in GateDrop): return to IDLE
 ' ============================================================
-BS -> SC : checkAnalogButton(Start)
+BS -> SC : isStartPressed()
 SC -> FC : MSG_DISP_ADVANCE
-FC --> SC : ack
+FC --> SC : MSG_ACK
 
-BS -> SC : checkAnalogButton(Start)
-SC -> RM : MSG_DISP_ADVANCE
-RM --> SC : ack
+note over FC
+  needReact == false:
+  FC sets stm.target = RACE_IDLE
+  and calls stm.selfTransition().
+  FC initiates the coordinated return.
+end note
 
-' ============================================================
-' Return to IDLE
-' ============================================================
-SC -> FC : MSG_RACE_STATE(IDLE)
-FC --> SC : ack
-SC -> RM : MSG_RACE_STATE(IDLE)
-RM --> SC : ack
+FC -> SC : MSG_RACE_STATE(IDLE)
+SC --> FC : MSG_ACK
 
 @enduml

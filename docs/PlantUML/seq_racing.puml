@@ -11,85 +11,105 @@ title Sequence: raceState(RACING) [DerbyTrack]
 ' ============================================================
 ' PARTICIPANTS
 ' ============================================================
-participant "Button\nRight"      as BR_BTN
 participant "Button\nLeft"       as BL_BTN
+participant "Button\nRight"      as BR_BTN
 participant "Gate L"             as GL
 participant "Gate R"             as GR
 participant "Start\nController"  as SC
 participant "Finish\nController" as FC
 participant "Sensor\nLeft"       as SL
 participant "Sensor\nRight"      as SR
-participant "Race\nManager"      as RM
-participant "Camera"             as CAM
+participant "Race\nManager"      as RM  #line.dashed
+participant "Camera"             as CAM #line.dashed
 
-' ============================================================
-' Reaction mode: buttons capture reaction times at race start
-' ============================================================
-group raceMode = ReactionStd or ReactionPro
-  note over BL_BTN, BR_BTN
-    Left and Right button presses are concurrent;
-    each independently records start time and drops its gate.
-  end note
-
-  BL_BTN -> SC : buttonPressed(Left)
-  SC -> SC     : leftStart = now
-  SC -> GL     : Deactivate(Drop)
-
-  BR_BTN -> SC : buttonPressed(Right)
-  SC -> SC     : rightStart = now
-  SC -> GR     : Deactivate(Drop)
-
-  SC -> FC : MSG_LEFT_REACT
-  FC --> SC : ack
-  SC -> FC : MSG_RIGHT_REACT
-  FC --> SC : ack
-  SC -> FC : MSG_FOUL
-  FC --> SC : ack
-end
-
-' ============================================================
-' Camera buffer during race
-' ============================================================
-note over CAM
-  Buffer 2 sec before and
-  2 sec after race complete
+note over RM, CAM
+  future: Race Manager (RPi via BLE) and Camera
+  are not yet implemented. These interactions
+  represent planned system behavior.
 end note
 
 ' ============================================================
-' Sensor monitoring
+' Reaction mode: drivers press buttons to release gates
+' and start their individual reaction timers.
+' Both lanes are handled concurrently every loop().
 ' ============================================================
-FC -> SL : checkSensor(Left)
-FC -> SR : checkSensor(Right)
+group raceMode = ReactionStd or ReactionPro
+  note over BL_BTN, BR_BTN
+    Left and Right button presses are handled concurrently.
+    Each independently records its carStartUs and drops its gate.
+    handleTrackTriggers() polls both every loop() iteration.
+  end note
 
-alt [sensorLeft == true]
-  SL -> FC : trackFinish(Left)
-  FC -> RM : trackFinish(Left)
+  BL_BTN -> SC : buttonPressed(Left)
+  SC -> SC     : raceTime.leftStartUs = micros()
+  SC -> GL     : dropGate(gateL)
+  SC -> SC     : pending.leftReact = true
+
+  BR_BTN -> SC : buttonPressed(Right)
+  SC -> SC     : raceTime.rightStartUs = micros()
+  SC -> GR     : dropGate(gateR)
+  SC -> SC     : pending.rightReact = true
+
+  note over SC
+    Once both gates drop, pending messages are
+    drained one at a time (FOUL first, then
+    LEFT_REACT, then RIGHT_REACT) before the
+    state machine will accept RACE_COMPLETE.
+  end note
+
+  SC -> FC : MSG_FOUL (foulMask)
+  FC --> SC : MSG_ACK
+  SC -> FC : MSG_LEFT_REACT (leftReactUs)
+  FC --> SC : MSG_ACK
+  SC -> FC : MSG_RIGHT_REACT (rightReactUs)
+  FC --> SC : MSG_ACK
 end
 
-alt [sensorRight == true]
-  SR -> FC : trackFinish(Right)
-  FC -> RM : trackFinish(Right)
+' ============================================================
+' Camera buffer [future]
+' ============================================================
+note over CAM
+  future: Buffer 2 sec before and
+  2 sec after race complete for
+  instant replay playback.
+end note
+
+' ============================================================
+' Sensor monitoring — finishController side
+' ============================================================
+FC -> SL : armSensors() already called in COUNTDOWN or RACING entry
+FC -> SR : (sensors armed, ISRs active)
+
+alt [left sensor triggered]
+  SL -> FC : ISR: leftFinished = true, leftTimeUs = elapsed
+  FC -> RM : trackFinish(Left)  [future/BLE]
+end
+
+alt [right sensor triggered]
+  SR -> FC : ISR: rightFinished = true, rightTimeUs = elapsed
+  FC -> RM : trackFinish(Right)  [future/BLE]
 end
 
 ' ============================================================
-' Timeout guard — disqualify if >10 seconds
+' Timeout guard — auto-complete lane if >10 seconds
 ' ============================================================
-alt [raceTime(Left) > 10 sec]
-  FC -> FC : trackFinish(Left) [timeout]
+alt [elapsed > maxRaceTimeUs (10 s) and left not recorded]
+  FC -> FC : leftTimeUs = maxRaceTimeUs, leftRecorded = true
 end
 
-alt [raceTime(Right) > 10 sec]
-  FC -> FC : trackFinish(Right) [timeout]
+alt [elapsed > maxRaceTimeUs (10 s) and right not recorded]
+  FC -> FC : rightTimeUs = maxRaceTimeUs, rightRecorded = true
 end
 
 ' ============================================================
-' Both lanes finished → transition to COMPLETE
+' Both lanes recorded -> transition to COMPLETE
 ' ============================================================
-alt [trackFinish(Left) && trackFinish(Right)]
-  FC -> SC : MSG_RACE_STATE(COMPLETE)
-  SC --> FC : ack
-  FC -> RM : MSG_RACE_STATE(COMPLETE)
-  RM --> FC : ack
+alt [leftRecorded AND rightRecorded]
+  FC -> FC  : stm.target = RACE_COMPLETE
+  FC -> SC  : MSG_RACE_STATE(COMPLETE)
+  SC --> FC : MSG_ACK
+  FC -> RM  : MSG_RACE_STATE(COMPLETE)  [future/BLE]
+  RM --> FC : MSG_ACK  [future/BLE]
 end
 
 @enduml

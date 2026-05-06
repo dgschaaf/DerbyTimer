@@ -1,0 +1,117 @@
+@startuml timing_reactionTime
+' ============================================================
+' Timing: Reaction Time Model
+' Shows clean-start and foul-start on a shared time axis.
+' Times are illustrative (not real race values).
+' ============================================================
+
+title Timing: Reaction Time Model [DerbyTrack — Reaction Mode]
+
+robust  "Race State\n(startController)"  as RS
+robust  "Gate — clean lane"              as GC
+concise "Button — clean lane"            as BC
+robust  "Gate — foul lane"               as GF
+concise "Button — foul lane"             as BF
+robust  "Finish Sensor (both)"           as FS
+
+' ============================================================
+' COUNTDOWN phase (0 ms - 2000 ms)
+' ============================================================
+@0
+RS is COUNTDOWN
+GC is UP
+BC is released
+GF is UP
+BF is released
+FS is waiting
+
+@500
+note top of RS : Y3
+
+@1000
+note top of RS : Y2
+
+@1500
+note top of RS : Y1
+
+' ============================================================
+' Foul: button pressed BEFORE GO (during countdown)
+' ============================================================
+@1800
+BF is pressed
+note top of BF
+  [FOUL] button pressed 200 ms
+  before GO during countdown.
+  carStartUs = 1800 ms
+  gate drops immediately.
+end note
+
+@1800
+GF is DOWN
+
+' ============================================================
+' GO: raceStartUs captured
+' ============================================================
+@2000
+RS is RACING
+note top of RS
+  GO reached (CD_GO).
+  raceStartUs = micros()
+  = 2000 ms reference point.
+end note
+
+' ============================================================
+' Clean: button pressed AFTER GO (during racing)
+' ============================================================
+@2200
+BC is pressed
+note top of BC
+  [CLEAN] button pressed 200 ms
+  after GO.
+  carStartUs = 2200 ms
+  gate drops now.
+end note
+
+@2200
+GC is DOWN
+
+' ============================================================
+' Both sensors trigger (same finish time for comparison)
+' ============================================================
+@5000
+FS is TRIGGERED
+note bottom of FS
+  raceTimeUs = 3000 ms
+  (sensor elapsed since raceStartUs)
+end note
+
+@5200
+RS is COMPLETE
+
+' ============================================================
+' Annotations: reaction time math
+' ============================================================
+note over GC, BC
+  CLEAN START:
+  reactionTimeUs = carStartUs - raceStartUs = 2200 - 2000 = 200 ms
+  carTimeUs = raceTimeUs - reactionTimeUs  = 3000 - 200  = 2800 ms
+  (reward: clean reaction subtracted from elapsed time)
+end note
+
+note over GF, BF
+  FOUL START:
+  reactionTimeUs = raceStartUs - carStartUs = 2000 - 1800 = 200 ms
+  carTimeUs = raceTimeUs + reactionTimeUs  = 3000 + 200  = 3200 ms
+  (penalty: foul reaction added to elapsed time)
+end note
+
+note over FS
+  calcReactionTimes(foul, raceStartUs, carStartUs):
+  . foul=true:  return elapsed(raceStart, carStart)
+                raceStart > carStart (early press)
+  . foul=false: return elapsed(carStart, raceStart)
+                carStart > raceStart (late press)
+  Both return a positive uint32_t reaction time in microseconds.
+end note
+
+@enduml

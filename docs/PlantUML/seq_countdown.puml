@@ -9,113 +9,116 @@ skinparam sequenceGroupBorderThickness 1.5
 title Sequence: raceState(COUNTDOWN) [DerbyTrack]
 
 ' ============================================================
-' PARTICIPANTS — match original diagram left-to-right order
+' PARTICIPANTS
 ' ============================================================
-participant "Tree\nLeft"         as TL
-participant "Tree\nRight"        as TR
-participant "Button\nRight"      as BR_BTN
+participant "Tree\nLights\n(74HC595)" as TREE
 participant "Button\nLeft"       as BL_BTN
+participant "Button\nRight"      as BR_BTN
 participant "Gate L"             as GL
 participant "Gate R"             as GR
 participant "Start\nController"  as SC
 participant "Finish\nController" as FC
 
+note over TREE
+  Both Left and Right trees are driven by
+  one 74HC595 shift register via a single
+  8-bit updateLights() call. LIGHT_BL and
+  LIGHT_BR are separate bits; Y1/Y2/Y3/GO
+  are shared bits that light both sides.
+end note
+
 ' ============================================================
-' MODE: GATEDROP — synchronized countdown, auto gate drop
+' MODE: GATEDROP
+' Standard countdown, gates drop automatically at GO.
 ' ============================================================
 group raceMode = GateDrop
-  SC -> TL : B, Y3 (500 ms)
-  SC -> TR : B, Y3 (500 ms)
-  SC -> TL : B, Y2 (500 ms)
-  SC -> TR : B, Y2 (500 ms)
-  SC -> TL : B, Y1 (500 ms)
-  SC -> TR : B, Y1 (500 ms)
-  SC -> TL : B, G
-  SC -> TR : B, G
-  SC -> GL : Deactivate(Drop)
-  SC -> GR : Deactivate(Drop)
-  SC -> FC : MSG_RACE_STATE(RACING)
-  FC --> SC : ack
+  SC -> TREE : updateLights(BL+BR+Y3)  [500 ms]
+  SC -> TREE : updateLights(BL+BR+Y2)  [500 ms]
+  SC -> TREE : updateLights(BL+BR+Y1)  [500 ms]
+  SC -> TREE : updateLights(BL+BR+GO)
+  SC -> GL   : dropGate(gateL)
+  SC -> GR   : dropGate(gateR)
+  SC -> FC   : MSG_RACE_STATE(RACING)
+  FC --> SC  : MSG_ACK
 end
 
 ' ============================================================
-' MODE: REACTION STD — staggered trees, button-triggered drop
-' Note: Left/Right tree updates are concurrent per step
+' MODE: REACTION STD
+' 500 ms stages. Drivers hold buttons; each release drops
+' their lane's gate and starts their reaction timer.
+' Both buttons are monitored concurrently every loop().
 ' ============================================================
 group raceMode = ReactionStd
-  SC -> TL : BL, Y3 (500 ms)
-  SC -> TR : BR, Y3 (500 ms)
-  SC -> TL : BL, Y2 (500 ms)
-  SC -> TR : BR, Y2 (500 ms)
-  SC -> TL : BL, Y1 (500 ms)
-  SC -> TR : BR, Y1 (500 ms)
-
-  alt [foulL]
-    SC -> TL : FL
-  else [foulR]
-    SC -> TR : FR
-  end
+  SC -> TREE : updateLights(BL+BR+Y3)  [500 ms]
+  SC -> TREE : updateLights(BL+BR+Y2)  [500 ms]
+  SC -> TREE : updateLights(BL+BR+Y1)  [500 ms]
 
   note over BL_BTN, BR_BTN
-    Left and Right button presses are concurrent.
-    Each triggers its own lane drop + GO light.
+    handleEarlyStarts() runs every loop during countdown.
+    If a button is pressed while gate is up before GO:
+    gate drops, foul flag set, carStartUs recorded.
+    Left and Right are checked independently.
   end note
 
+  note over BL_BTN, BR_BTN
+    After GO: handleTrackTriggers() runs in RACING state.
+    Each button press independently records carStartUs
+    and drops that lane's gate. Both are concurrent.
+  end note
+
+  SC -> TREE : updateLights(BL+BR+GO)
+
   BL_BTN -> SC : buttonPressed(Left)
-  SC -> GL     : Deactivate(Drop)
-  SC -> TL     : BL, GO
-  SC -> SC     : foulL && leftStart = now
+  SC -> GL     : dropGate(gateL)
+  SC -> SC     : raceTime.leftStartUs = now
+  SC -> SC     : foulL = false  [clean start]
 
   BR_BTN -> SC : buttonPressed(Right)
-  SC -> GR     : Deactivate(Drop)
-  SC -> TR     : BR, GO
-  SC -> SC     : foulR && rightStart = now
+  SC -> GR     : dropGate(gateR)
+  SC -> SC     : raceTime.rightStartUs = now
+  SC -> SC     : foulR = false  [clean start]
 
   SC -> FC : MSG_RACE_STATE(RACING)
-  FC --> SC : ack
+  FC --> SC : MSG_ACK
 end
 
 ' ============================================================
-' MODE: REACTION PRO — rapid flash, button-triggered drop
-' Note: Both tree flash sequences fire concurrently
+' MODE: REACTION PRO
+' Single 400 ms stage: all three yellows light simultaneously.
+' Gate drop behavior identical to ReactionStd after GO.
 ' ============================================================
 group raceMode = ReactPro
-  note over TL, TR
-    Both trees flash B, Y3, Y2, Y1 simultaneously (400 ms each)
+  note over TREE
+    Pro Tree: tickCountdownState() jumps from CD_STAGED
+    directly to CD_Y1 (skipping Y2 and Y3).
+    buildLightConfig(CD_Y1, PRO) returns Y3+Y2+Y1 combined.
+    One 400 ms stage, all three yellows lit at once.
   end note
 
-  SC -> TL : B, Y3, Y2, Y1 (400 ms)
-  SC -> TR : B, Y3, Y2, Y1 (400 ms)
-
-  alt [foulL]
-    SC -> TL : FL
-  else [foulR]
-    SC -> TR : FR
-  end
-
-  note over BL_BTN, BR_BTN
-    Left and Right button presses are concurrent.
-    Each triggers its own lane drop + GO light.
-  end note
+  SC -> TREE : updateLights(BL+BR+Y3+Y2+Y1)  [400 ms, all three yellows simultaneously]
+  SC -> TREE : updateLights(BL+BR+GO)
 
   BL_BTN -> SC : buttonPressed(Left)
-  SC -> GL     : Deactivate(Drop)
-  SC -> TL     : BL, GO
-  SC -> SC     : foulL && leftStart = now
+  SC -> GL     : dropGate(gateL)
+  SC -> SC     : raceTime.leftStartUs = now
+  SC -> SC     : foulL = false  [clean start]
 
   BR_BTN -> SC : buttonPressed(Right)
-  SC -> GR     : Deactivate(Drop)
-  SC -> TR     : BR, GO
-  SC -> SC     : foulR && rightStart = now
+  SC -> GR     : dropGate(gateR)
+  SC -> SC     : raceTime.rightStartUs = now
+  SC -> SC     : foulR = false  [clean start]
 
   SC -> FC : MSG_RACE_STATE(RACING)
-  FC --> SC : ack
+  FC --> SC : MSG_ACK
 end
 
 note over SC
-  If both drivers foul:
-  - Worst foul = red-lighted (FL or FR)
-  - Lesser infraction added to elapsed time
+  Foul handling (any reaction mode):
+  - Early press before GO: gate drops immediately,
+    foul = true, carStartUs captured.
+  - reactionTimeUs is calculated in RACING state.
+  - If both drivers foul: worst foul (FL or FR) shown;
+    lesser infraction's time is added to elapsed time.
 end note
 
 @enduml

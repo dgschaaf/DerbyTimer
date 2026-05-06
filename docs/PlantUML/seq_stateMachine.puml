@@ -1,0 +1,123 @@
+@startuml seq_stateMachine
+skinparam sequenceArrowThickness 1.5
+skinparam sequenceParticipantBorderColor Navy
+skinparam sequenceParticipantBackgroundColor AliceBlue
+skinparam noteBackgroundColor LightYellow
+skinparam noteBorderColor DarkOrange
+skinparam sequenceGroupBorderThickness 1.5
+
+title Sequence: State Machine Coordination [DerbyTrack]
+title selfTransition / rxTransition protocol
+
+' ============================================================
+' PARTICIPANTS
+' ============================================================
+participant "startController\n(initiator)" as SC
+participant "serialComm\n(shared lib)" as COM
+participant "finishController\n(follower)" as FC
+
+note over SC, FC
+  Both controllers contain identical stateMachine structs
+  with selfTransition(), rxTransition(), and allowedTransition().
+  startController normally INITIATES transitions (selfTransition).
+  finishController normally FOLLOWS them (rxTransition).
+  Exception: finishController initiates COMPLETE->IDLE
+  using its own selfTransition() after result display.
+end note
+
+' ============================================================
+' HAPPY PATH: selfTransition succeeds (TX_ACKED)
+' ============================================================
+== selfTransition: coordinated state change (success) ==
+
+SC -> SC : stm.allowedTransition(newState)
+note right of SC
+  Guards illegal transitions.
+  Same 6x6 table in both controllers:
+  IDLE->STAGING, STAGING->COUNTDOWN,
+  COUNTDOWN->RACING, RACING->COMPLETE,
+  COMPLETE->IDLE, IDLE->TEST, TEST->IDLE.
+end note
+
+SC -> SC : stm.target = newState
+SC -> COM : txRaceState(newState)
+
+COM -> FC : MSG_RACE_STATE(newState)
+
+FC -> FC : stm.rxTransition(newState)
+note right of FC
+  rxTransition commits immediately
+  without waiting:
+  . current = newState
+  . entry = true
+  . exit  = true
+  MSG_ACK sent back as part of
+  normal rxSerial() packet handling.
+end note
+
+FC -> COM : MSG_ACK
+
+COM -> SC : returns TX_ACKED
+
+SC -> SC : stm.current = stm.target
+SC -> SC : stm.entry = true
+SC -> SC : stm.exit  = true
+SC -> COM : resetTxState(MSG_RACE_STATE)
+
+note over SC, FC
+  On the NEXT loop() iteration:
+  Both controllers execute their entry
+  logic for the new state, then clear
+  stm.entry = false.
+  exit logic runs once and clears
+  stm.exit = false.
+end note
+
+' ============================================================
+' FAILURE PATH: selfTransition fails (TX_TIMEOUT / TX_FAILED)
+' ============================================================
+== selfTransition: coordinated state change (failure) ==
+
+SC -> COM : txRaceState(newState)
+note right of COM
+  Up to 3 retries.
+  50 ms timeout per attempt.
+  Total max wait: ~150 ms.
+end note
+
+COM -> SC : returns TX_TIMEOUT or TX_FAILED
+
+SC -> SC : stm.target = stm.current  [revert intention]
+SC -> COM : resetTxState(MSG_RACE_STATE)
+
+note right of SC
+  State is unchanged on both sides.
+  future: txError() can log the failure.
+  The operator must re-trigger the
+  transition (e.g. press Start again).
+end note
+
+' ============================================================
+' MODE MACHINE: same pattern, different message
+' ============================================================
+== modeMachine.selfTransition: coordinated mode change ==
+
+SC -> SC : mdm.nextMode() -> mdm.target = newMode
+SC -> COM : txRaceMode(newMode)
+COM -> FC : MSG_RACE_MODE(newMode)
+FC -> FC : currentMode = newMode  [direct assignment, no struct transition]
+FC -> COM : MSG_ACK
+COM -> SC : returns TX_ACKED
+SC -> SC : mdm.current = mdm.target
+SC -> SC : rx.Mode = mdm.current
+SC -> SC : startBlink(modePattern, OFF, 3, 250ms, OFF)
+SC -> COM : resetTxState(MSG_RACE_MODE)
+
+note over SC
+  Mode is only changeable in RACE_IDLE.
+  The mode blink (3x flash of the mode's
+  indicator light) gates further transitions:
+  Start button is ignored while blinkState.active.
+end note
+
+@enduml

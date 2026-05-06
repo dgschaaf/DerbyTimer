@@ -1,0 +1,139 @@
+<mxfile host="65bd71144e">
+    <diagram id="power" name="Power Distribution">
+        <mxGraphModel dx="1434" dy="779" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="DerbyTimer — Power Distribution" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="477" y="20" width="700" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="psu" value="&lt;b&gt;External Power Supply&lt;/b&gt;&lt;br&gt;12V DC, ~2A minimum&lt;br&gt;(barrel jack on shield)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#23445D;strokeColor=#000000;fontColor=#FFFFFF;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="627" y="80" width="400" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="rail_12v" value="12V Rail" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=12;fontColor=#7D3C98;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="165" width="100" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="gate_drv" value="&lt;b&gt;Gate Driver Circuits&lt;/b&gt;&lt;br&gt;MOSFET / BJT switches&lt;br&gt;on start controller shield&lt;br&gt;(MCU 5V signal → 12V load)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="230" width="200" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="gate_l_pw" value="Left Gate Electromagnet&lt;br&gt;12V, ~500 mA hold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="390" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="gate_r_pw" value="Right Gate Electromagnet&lt;br&gt;12V, ~500 mA hold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="230" y="390" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="solenoid_pw" value="Return Solenoid&lt;br&gt;12V, ~800 mA peak&lt;br&gt;500 ms pulse" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="390" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="note_12v" value="Peak draw during gate return: ~1.8 A @ 12V&lt;br&gt;(both electromagnets energised + solenoid pulse)" style="text;html=1;strokeColor=#7D3C98;fillColor=#F5EEF8;align=center;verticalAlign=middle;fontSize=10;fontStyle=2;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="460" width="580" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="reg_5v" value="&lt;b&gt;5V Regulator&lt;/b&gt;&lt;br&gt;(on start controller shield)&lt;br&gt;e.g. LM7805 or similar" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="727" y="230" width="200" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="rail_5v" value="5V Rail (Start Controller side)" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=11;fontColor=#1A5276;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="315" width="300" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="sc_5v" value="&lt;b&gt;Start Controller Nano&lt;/b&gt;&lt;br&gt;Arduino Nano ATmega328P&lt;br&gt;5V via VIN pin&lt;br&gt;~50 mA idle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#1D4ED8;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="380" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr_5v" value="74HC595 Shift Register&lt;br&gt;5V VCC&lt;br&gt;~20 mA" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="840" y="380" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="pullup_5v" value="Button Pull-up Resistors&lt;br&gt;5V reference&lt;br&gt;(ext pull-up on D18, D19)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="480" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="fc_pwr_src" value="&lt;b&gt;Finish Controller Power&lt;/b&gt;&lt;br&gt;USB 5V (programming / bench)&lt;br&gt;or external 5V via VIN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#23445D;strokeColor=#000000;fontColor=#FFFFFF;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1140" y="90" width="250" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="fc_nano_pw" value="&lt;b&gt;Arduino Nano 33 BLE&lt;/b&gt;&lt;br&gt;nRF52840&lt;br&gt;5V in → 3.3V internal reg&lt;br&gt;~80 mA with BLE active" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#065F46;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="220" width="220" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="rail_33v" value="3.3V Internal Rail (nRF52840)" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=11;fontColor=#1E8449;" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="320" width="350" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="schmitt_pw" value="74HC14 Schmitt Trigger&lt;br&gt;3.3V VCC&lt;br&gt;(verify: HCT version preferred&lt;br&gt;for 5V sensor compat.)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1080" y="360" width="185" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="sens_pw" value="SE61 Optical Sensors (x2)&lt;br&gt;3.3V VCC&lt;br&gt;(verify sensor Vcc range)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="500" width="185" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="hc238_pw" value="74HC238 Demux (x2)&lt;br&gt;3.3V VCC&lt;br&gt;(HC family: 2V-6V ok)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1330" y="380" width="185" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="bcd_pw" value="MC14543B BCD Driver&lt;br&gt;3.3V VCC&lt;br&gt;(CMOS: 3V-18V ok)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1210" y="490" width="185" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="disp_pw" value="7-Segment Displays (x2)&lt;br&gt;Driven by BCD IC segments&lt;br&gt;(LED forward voltage ~2V)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1272" y="584.5" width="185" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="warn_33v" value="⚠ Nano 33 BLE I/O pins are 3.3V only — NOT 5V tolerant.&lt;br&gt;If sensors or ICs are powered from 5V, verify signal voltage compatibility&lt;br&gt;or add level-shift resistors / voltage dividers on signal lines." style="text;html=1;strokeColor=#C0392B;fillColor=#FADBD8;align=center;verticalAlign=middle;fontSize=10;fontStyle=0;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="1027" y="670" width="430" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_psu_gatedrv" value="12V" style="endArrow=block;endFill=1;html=1;strokeColor=#7D3C98;strokeWidth=3;fontSize=10;fontStyle=1;" parent="1" source="psu" target="gate_drv" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_psu_reg" value="12V in" style="endArrow=block;endFill=1;html=1;strokeColor=#7D3C98;strokeWidth=3;fontSize=10;fontStyle=1;" parent="1" source="psu" target="reg_5v" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_drv_gl" value="12V switched" style="endArrow=block;endFill=1;html=1;strokeColor=#D79B00;strokeWidth=2;fontSize=9;" parent="1" source="gate_drv" target="gate_l_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_drv_gr" value="12V switched" style="endArrow=block;endFill=1;html=1;strokeColor=#D79B00;strokeWidth=2;fontSize=9;" parent="1" source="gate_drv" target="gate_r_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_drv_sol" value="12V switched" style="endArrow=block;endFill=1;html=1;strokeColor=#D79B00;strokeWidth=2;fontSize=9;" parent="1" source="gate_drv" target="solenoid_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_reg_sc" value="5V" style="endArrow=block;endFill=1;html=1;strokeColor=#1A5276;strokeWidth=2;fontSize=10;fontStyle=1;" parent="1" source="reg_5v" target="sc_5v" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_reg_sr" value="5V" style="endArrow=block;endFill=1;html=1;strokeColor=#1A5276;strokeWidth=2;fontSize=10;fontStyle=1;" parent="1" source="reg_5v" target="sr_5v" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_sc_pullup" value="5V" style="endArrow=block;endFill=1;html=1;strokeColor=#1A5276;strokeWidth=2;fontSize=9;" parent="1" source="sc_5v" target="pullup_5v" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_fc_src" value="5V (USB or VIN)" style="endArrow=block;endFill=1;html=1;strokeColor=#1E8449;strokeWidth=2;fontSize=10;fontStyle=1;" parent="1" source="fc_pwr_src" target="fc_nano_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_fc_schmitt" value="3.3V" style="endArrow=block;endFill=1;html=1;strokeColor=#1E8449;strokeWidth=2;fontSize=9;" parent="1" source="fc_nano_pw" target="schmitt_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_schmitt_sens" value="3.3V" style="endArrow=block;endFill=1;html=1;strokeColor=#1E8449;strokeWidth=2;fontSize=9;" parent="1" source="schmitt_pw" target="sens_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_fc_238" value="3.3V" style="endArrow=block;endFill=1;html=1;strokeColor=#1E8449;strokeWidth=2;fontSize=9;" parent="1" source="fc_nano_pw" target="hc238_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_fc_bcd" value="3.3V" style="endArrow=block;endFill=1;html=1;strokeColor=#1E8449;strokeWidth=2;fontSize=9;" parent="1" source="fc_nano_pw" target="bcd_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_bcd_disp" value="segment drive" style="endArrow=block;endFill=1;html=1;strokeColor=#B85450;strokeWidth=2;fontSize=9;" parent="1" source="bcd_pw" target="disp_pw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_sc_gatedrv" value="D4/D6/D7&lt;br&gt;5V control signal" style="endArrow=open;endFill=0;html=1;strokeColor=#555555;fontSize=9;dashed=0;" parent="1" source="sc_5v" target="gate_drv" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;" style="swimlane;startSize=25;fillColor=#F2F3F4;strokeColor=#999999;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="1050" width="850" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_12v" value="12V supply path" style="text;html=1;strokeColor=#7D3C98;fillColor=none;fontColor=#7D3C98;fontStyle=1;fontSize=10;" parent="legend" vertex="1">
+                    <mxGeometry x="10" y="35" width="150" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_5v" value="5V supply path" style="text;html=1;strokeColor=#1A5276;fillColor=none;fontColor=#1A5276;fontStyle=1;fontSize=10;" parent="legend" vertex="1">
+                    <mxGeometry x="170" y="35" width="150" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_33v" value="3.3V supply path" style="text;html=1;strokeColor=#1E8449;fillColor=none;fontColor=#1E8449;fontStyle=1;fontSize=10;" parent="legend" vertex="1">
+                    <mxGeometry x="330" y="35" width="150" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_sw" value="Switched 12V (actuators)" style="text;html=1;strokeColor=#D79B00;fillColor=none;fontColor=#D79B00;fontStyle=1;fontSize=10;" parent="legend" vertex="1">
+                    <mxGeometry x="490" y="35" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_sig" value="Control signal (not power)" style="text;html=1;strokeColor=#555555;fillColor=none;fontColor=#555555;fontStyle=0;fontSize=10;" parent="legend" vertex="1">
+                    <mxGeometry x="700" y="35" width="140" height="30" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
