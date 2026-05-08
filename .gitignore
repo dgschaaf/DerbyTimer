@@ -1,6 +1,7 @@
 # Build output
 .build/
 .pio/
+out/
 cmake-build-*/
 *.elf
 *.map
@@ -15,6 +16,12 @@ cmake-build-*/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Claude & workflow artifacts
+CLAUDE.md
+.claude/
+docs/superpowers/
+nudges/
 
 # KiCad backups/cache (keep source .kicad_* files!)
 *-backups/
