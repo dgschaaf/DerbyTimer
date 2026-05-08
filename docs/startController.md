@@ -155,7 +155,7 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 ### Maintenance Guidelines
 
 #### Adding Race Modes
-1. Extend `raceMode` enum in globals.h
+1. Extend `raceMode` enum in `raceTypes.h`
 2. Wire into the `nextMode()` switch in `modeMachine` (startController.cpp)
 3. Define light pattern in both `selfTransition()` and `rxTransition()` of `modeMachine`
 4. Add countdown delay case in `tickCountdownState()` if different from 500 ms

@@ -1,6 +1,8 @@
 #ifndef LIGHTS_H
 #define LIGHTS_H
 
+#include "raceTypes.h"    // countdownState, raceMode used in buildLightConfig signature
+
 /**
  * @brief Configuration for the christmas tree light control.
  *

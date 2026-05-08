@@ -1,5 +1,4 @@
 #include "lights.h"
-#include "globals.h"
 #include <Arduino.h>
 
 // Shift register pins

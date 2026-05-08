@@ -9,87 +9,12 @@
  */
 
 #include <Arduino.h>
+#include "raceTypes.h"
+#include "serialComm.h"
+#include "stateMachine.h"
 #include "lights.h"
 #include "gates.h"
-#include "serialComm.h"
 #include "buttons.h"
-#include "globals.h"
-
-struct stateMachine {
-	raceState current;
-	raceState target;
-	bool entry;
-	bool exit;
-	bool allowedTransition(raceState next) {
-		// Allowed transitions table (FROM x TO)
-		static constexpr bool allowed[6][6] = {
-		/* FROM\TO:  IDLE STAG CNTD RACE CMPL TEST */
- 		/*IDLE*/     {0,   1,   0,   0,   0,   1},
- 		/*STAGING*/  {0,   0,   1,   0,   0,   0},
- 		/*COUNTDOWN*/{0,   0,   0,   1,   0,   0},
- 		/*RACING*/   {0,   0,   0,   0,   1,   0},
- 		/*COMPLETE*/ {1,   0,   0,   0,   0,   0},
- 		/*TEST*/     {1,   0,   0,   0,   0,   0}
-		};
-
-		return allowed[current][next];
-	};
-
-	void selfTransition(raceState newState) {
-		// 1. Reject illegal transitions
-        if (!allowedTransition(newState)) {
-			return;
-		}
-
-		// 2. Check if already in target state
-        if (current == newState) {
-            return;
-        }
-
-		// 3. Set intention to transition
-		target = newState;
-
-		// 4. Attempt coordinated change
-		txStatus result	= txRaceState(target);
-		switch (result) {
-			
-			case TX_ACKED:
-				// Transition has been confirmed, now commit
-				entry 	= true;		// next loop: run entry logic
-				current	= target;   // commit new state
-				exit 	= true;   		// run exit logic
-				resetTxState(MSG_RACE_STATE);
-				return;
-
-			case TX_TIMEOUT:
-			case TX_FAILED:
-				// Transition failed, revert intention and abandon transition
-				target	= current;
-				resetTxState(MSG_RACE_STATE);
-				return;
-
-			default:
-				// Still TX_SENT or waiting for ACK
-				return;
-		}
-
-        return;  // Already in target state
-    }
-
-	void rxTransition(raceState newState) {
-		if (current == newState) {
-			return;
-		}
-		if (!allowedTransition(newState)) {
-			txNack(MSG_RACE_STATE);
-			return;
-		}
-		target  = newState;
-		current = newState;
-		entry   = true;
-		exit    = true;
-	}
-};
 
 // Mode machine structure for managing mode transitions
 struct modeMachine {
@@ -126,13 +51,13 @@ struct modeMachine {
 		}
 
 		// 4. Attempt coordinated change
-		txStatus result	= txRaceMode(target);
+		txStatus result	= txRaceMode((uint8_t)target);
 		switch (result) {
 			
 			case TX_ACKED:
 				// Transition has been confirmed, now commit
 				current		= target;   						// commit new mode
-				rx.Mode		= current;							// update Serial target to match
+				rx.Mode		= (uint8_t)current;					// update Serial target to match
 				startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);	// blink new mode pattern 3x
 				resetTxState(MSG_RACE_MODE);
 				return;
@@ -251,7 +176,7 @@ void startControllerSetup(){
 	setupGates();
 	setupLights();
 
-	// Start in idle state.  These variables are declared in globals.h.
+	// Start in idle state.  These variables are declared in raceTypes.h.
 	stm.current					= RACE_IDLE;
 	stm.target					= RACE_IDLE;
 	mdm.current 				= MODE_GATEDROP;
@@ -293,7 +218,7 @@ void startControllerLoop(){
 				// Sync check: after a normal race, FC drives COMPLETE->IDLE and SC receives
 				// MSG_RACE_STATE(IDLE), setting rx.State = RACE_IDLE. If rx.State is anything
 				// else here, FC did not complete its IDLE transition — warn the operator.
-				if (rx.State != RACE_IDLE) {
+				if ((raceState)rx.State != RACE_IDLE) {
 					startBlink(LIGHT_FL | LIGHT_FR, 0x00, 3, 250, LIGHT_OFF);	// 3 red blinks, then off
 				}
 			}
@@ -305,7 +230,7 @@ void startControllerLoop(){
 				if (isStartPressed())	stm.target = RACE_STAGING;		// Start moves to STAGING
 			}
 
-			stm.rxTransition(rx.State);
+			stm.rxTransition((raceState)rx.State);
 			if (stm.target != stm.current) stm.selfTransition(stm.target);
 
 			if(stm.exit){
@@ -392,7 +317,7 @@ void startControllerLoop(){
 			}
 
 			if (!pending.anyPending()) {
-				stm.rxTransition(rx.State);		// only accept COMPLETE once all pending messages sent
+				stm.rxTransition((raceState)rx.State);		// only accept COMPLETE once all pending messages sent
 			}
 
 			if(stm.exit){
@@ -421,7 +346,7 @@ void startControllerLoop(){
 			}			
 				
 			if (!winLightsPend && !updateBlink()){				// note: this also executes the updateBlink() function to process blinks
-				stm.rxTransition(rx.State); // wait until all pending messages have been sent until completing transition
+				stm.rxTransition((raceState)rx.State); // wait until all pending messages have been sent until completing transition
 			}
 
 			if(stm.exit){
@@ -454,7 +379,7 @@ void startControllerLoop(){
  	// Handle mode changes via button press or rxSerial
 	if (!blinkState.active){
 		if (rx.Mode != mdm.current){
-			mdm.rxTransition(rx.Mode);								// Handle unsolicited mode changes from rxSerial
+			mdm.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
 		} else {
 			if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
 			if (isModePressed() && modeReleased){

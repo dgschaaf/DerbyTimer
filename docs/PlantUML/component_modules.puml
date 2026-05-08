@@ -19,9 +19,11 @@ title DerbyTimer Module Dependencies
 ' SHARED LIBRARY  (linked into both controllers)
 ' ============================================================
 package "Shared Library\nfirmware/lib/shared/" as Shared {
-  component [globals.h\nraceState, raceMode,\ncountdownState enums\nbitmask defines] as Globals
-  component [serialComm\nUART framing, ACK/NACK retry\nSerialRxState rx struct\ntxRaceState, txWinner, ...] as SerComm
-  SerComm --> Globals : uses enums\n+ rx struct
+  component [raceTypes.h\nraceState, raceMode,\ncountdownState enums] as RaceTypes
+  component [serialComm\nUART framing, ACK/NACK retry\nSerialRxState rx struct\nbitmask defines\ntxRaceState, txWinner, ...] as SerComm
+  component [stateMachine.h\nshared struct\nallowedTransition table] as StateMachine
+  StateMachine --> RaceTypes : uses enums
+  StateMachine --> SerComm : calls txRaceState\ntxNack, resetTxState
 }
 
 ' ============================================================

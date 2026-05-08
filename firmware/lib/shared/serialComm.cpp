@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include "serialComm.h"
-#include "globals.h"
 // if you put the ack into the helper function and make it a bool return, 
 // does it cause the code to hang waiting for a response?
 
@@ -137,10 +136,10 @@ bool rxSerial() {
 }
 
 // ************** TX Messages **************
-txStatus txRaceMode(raceMode newMode) {
+txStatus txRaceMode(uint8_t newMode) {
 	auto& state 			= txState[MSG_RACE_MODE];
 	unsigned long now 		= millis();
-	uint8_t payload 		= (uint8_t)newMode;			// set payload
+	uint8_t payload 		= newMode;					// set payload
 	switch (state.status) {
 		case TX_SENT:
 			if (now - state.sendTime >= txTimeout){		// check if response waiting exceeded
@@ -162,10 +161,10 @@ txStatus txRaceMode(raceMode newMode) {
 	}
 }
 
-txStatus txRaceState(raceState newState){
+txStatus txRaceState(uint8_t newState){
 	auto& state 			= txState[MSG_RACE_STATE];
 	unsigned long now 		= millis();
-	uint8_t payload 		= (uint8_t)newState;		// set payload
+	uint8_t payload 		= newState;					// set payload
 	switch (state.status) {
 		case TX_SENT:
 			if (now - state.sendTime >= txTimeout){		// check if response waiting exceeded

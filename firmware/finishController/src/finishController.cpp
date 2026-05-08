@@ -9,87 +9,12 @@
  */
 
 #include <Arduino.h>
+#include "raceTypes.h"
+#include "serialComm.h"
+#include "stateMachine.h"
 #include "finishController.h"
 #include "display.h"
 #include "sensors.h"
-#include "serialComm.h"
-#include "globals.h"
-
-struct stateMachine {
-	raceState current;
-	raceState target;
-	bool entry;
-	bool exit;
-	bool allowedTransition(raceState next) {
-		// Allowed transitions table (FROM x TO)
-		static constexpr bool allowed[6][6] = {
-		/* FROM\TO:  IDLE STAG CNTD RACE CMPL TEST */
- 		/*IDLE*/     {0,   1,   0,   0,   0,   1},
- 		/*STAGING*/  {0,   0,   1,   0,   0,   0},
- 		/*COUNTDOWN*/{0,   0,   0,   1,   0,   0},
- 		/*RACING*/   {0,   0,   0,   0,   1,   0},
- 		/*COMPLETE*/ {1,   0,   0,   0,   0,   0},
- 		/*TEST*/     {1,   0,   0,   0,   0,   0}
-		};
-
-		return allowed[current][next];
-	};
-
-    void selfTransition(raceState newState) {
-		// 1. Reject illegal transitions
-        if (!allowedTransition(newState)) {
-			return;
-		}
-
-		// 2. Check if already in target state
-        if (current == newState) {
-            return;
-        }
-
-		// 3. Set intention to transition
-		target = newState;
-
-		// 4. Attempt coordinated change
-		txStatus result	= txRaceState(target);
-		switch (result) {
-			
-			case TX_ACKED:
-				// Transition has been confirmed, now commit
-				entry 	= true;		// next loop: run entry logic
-				current	= target;   // commit new state
-				exit 	= true;   		// run exit logic
-				resetTxState(MSG_RACE_STATE);
-				return;
-
-			case TX_TIMEOUT:
-			case TX_FAILED:
-				// Transition failed, revert intention and abandon transition
-				target	= current;
-				resetTxState(MSG_RACE_STATE);
-				return;
-
-			default:
-				// Still TX_SENT or waiting for ACK
-				return;
-		}
-
-        return;  // Already in target state
-    }
-
-    void rxTransition(raceState newState) {
-		if (current == newState) {
-			return;
-		}
-		if (!allowedTransition(newState)) {
-			txNack(MSG_RACE_STATE);
-			return;
-		}
-		target  = newState;
-		current = newState;
-		entry   = true;
-		exit    = true;
-	}
-};
 
 // Results structure for a lane.  Times are stored in microseconds
 struct raceResults {
@@ -144,7 +69,7 @@ void finishControllerSetup() {
 	setupSensors();
 	setupDisplay();	
 
-	// Start in idle state.  These variables are declared in globals.h.
+	// Start in idle state.  These variables are declared in raceTypes.h.
     stm.current					= RACE_IDLE;
     stm.target					= RACE_IDLE;
     currentMode 				= MODE_GATEDROP;
@@ -181,10 +106,10 @@ void finishControllerLoop() {
 			}
 
 			if (rx.Mode != currentMode){
-				currentMode 		= rx.Mode;	// update mode from serial, source will validate
+				currentMode 		= (raceMode)rx.Mode;	// update mode from serial, source will validate
 				// notifyBLEMode(currentMode);	// Future - notify mode change over BLE
 			}
-			stm.rxTransition(rx.State);			// transitions state if received via serial
+			stm.rxTransition((raceState)rx.State);			// transitions state if received via serial
 			if(stm.exit){
 				stm.exit 			= false;
 			}
@@ -195,7 +120,7 @@ void finishControllerLoop() {
 			if(stm.entry){
 				stm.entry 			= false;
 			}
-			stm.rxTransition(rx.State);			// transitions state if received via serial
+			stm.rxTransition((raceState)rx.State);			// transitions state if received via serial
 			if(stm.exit){
 				stm.exit 			= false;
 			}
@@ -213,7 +138,7 @@ void finishControllerLoop() {
 				race.raceStartUs	= micros();
 				armSensors(race.raceStartUs);
 			}
-			stm.rxTransition(rx.State);						// transitions state if received via serial	
+			stm.rxTransition((raceState)rx.State);						// transitions state if received via serial	
 			if(stm.exit){
 				stm.exit 			= false;		
 			}
