@@ -77,17 +77,17 @@ struct stateMachine {
     }
 
     void rxTransition(raceState newState) {
-		// 1. Check if already in target state
-        if (current == newState) {
-            return;
-        }
-
-		// 2. Commit local state change
-		target 			= newState;
-		current			= newState;
-		entry  			= true;
-		exit   			= true;
-		return;
+		if (current == newState) {
+			return;
+		}
+		if (!allowedTransition(newState)) {
+			txNack(MSG_RACE_STATE);
+			return;
+		}
+		target  = newState;
+		current = newState;
+		entry   = true;
+		exit    = true;
 	}
 };
 
@@ -109,9 +109,17 @@ struct raceTimingData {
     bool rightRecorded;
 };
 
+struct PendingTx {
+	bool winner = false;
+
+	bool anyPending() const { return winner; }
+	void serviceNext();
+};
+
 // State flags instance
 bool needReact 			= false;		// Reaction time is needed
-bool txWinPending		= false;		// Winner transmission is pending
+static PendingTx pending;
+static bool criticalTxError = false;		// unused in FC currently; reserved for future critical messages
 
 
 // Static instances for left and right lanes; lifetime extends over loops.
@@ -127,7 +135,6 @@ static raceMode currentMode;
 static void handleSensors();
 static void handleRxReaction();
 static void computeRaceTimes();
-static void transmitWinnerToSC();
 static void displayCarTimes();
 static void displayReactionTimes();
 
@@ -144,7 +151,27 @@ void finishControllerSetup() {
 }
 
 void finishControllerLoop() {
+    /*
+     * Coordination model — each transition has one initiator (calls selfTransition,
+     * sends MSG_RACE_STATE, waits for ACK) and one follower (receives via rxSerial,
+     * calls rxTransition to commit locally without re-broadcasting).
+     *
+     * Transition             Initiator   Follower
+     * IDLE      -> STAGING      SC          FC
+     * STAGING   -> IDLE         SC          FC
+     * STAGING   -> COUNTDOWN    SC          FC
+     * COUNTDOWN -> RACING       SC          FC
+     * RACING    -> COMPLETE     FC          SC
+     * COMPLETE  -> IDLE         FC          SC
+     */
 	rxSerial();
+
+	if (criticalTxError) {
+		clearDisplay(true);		// blank both displays
+		clearDisplay(false);
+		return;
+	}
+
 	switch(stm.current) {
 		case RACE_IDLE:
 			if(stm.entry){
@@ -218,38 +245,34 @@ void finishControllerLoop() {
 			if (race.leftRecorded && race.rightRecorded) {
 				stm.target	= RACE_COMPLETE;	// initiate state transition when both sensors recorded
 			}
-			stm.selfTransition(stm.target);			// transitions state if updated target
-			
+			if (stm.target != stm.current) stm.selfTransition(stm.target);
+
 			if(stm.exit){
-				stm.exit 				= false;	
-				disarmSensors();	
+				stm.exit 				= false;
+				disarmSensors();
 			}
 			break;
 			
 		case RACE_COMPLETE:
 			if(stm.entry){
-				needReact				= false;	// clear flag for safety
-				rx.DisplayAdvanceFlag	= false;	// clear flag for safety
-				txWinPending			= true;		// set winner transmission flag
-				computeRaceTimes();					// calculate and compile race times, reaction times, and winner
-				displayCarTimes();					// push car times to display
-				stm.entry 				= false;	// done with stm.entry tasks
-			}
-
-			if (txWinPending){
-				transmitWinnerToSC();				// send winner over serial to startController
+				needReact				= false;
+				rx.DisplayAdvanceFlag	= false;
+				computeRaceTimes();
+				displayCarTimes();
+				pending.winner			= true;		// transmit winner once per race
+				resetTxState(MSG_WINNER);
+				stm.entry				= false;
 			}
 
 			if(rx.DisplayAdvanceFlag) {
-				// When startControll signals to advance display (start trigger)
 				if(needReact){
 					displayReactionTimes();
-				} else {
-					stm.target			= RACE_IDLE;
+				} else if (!pending.anyPending()) {
+					stm.target		= RACE_IDLE;	// only transition once winner TX is done
 				}
 				rx.DisplayAdvanceFlag	= false;
 			}
-			stm.selfTransition(stm.target);				// transitions state if updated target
+			if (stm.target != stm.current) stm.selfTransition(stm.target);
 
 			if(stm.exit){
 				stm.exit 				= false;
@@ -265,14 +288,16 @@ void finishControllerLoop() {
 				stm.target 		= RACE_IDLE;
 				stm.entry 		= false;
 			}
-			
-			stm.selfTransition(stm.target);				// transitions state if updated target
+
+			if (stm.target != stm.current) stm.selfTransition(stm.target);
 
 			if(stm.exit){
 				stm.exit 		= false;
 			}
 			break;
-	}	
+	}
+
+	pending.serviceNext();
 }
 
 /* =========================================================================
@@ -358,37 +383,6 @@ void computeRaceTimes() {
 	rightResults.winner = !rightResults.foul && (leftResults.foul  || (rightResults.carTimeUs < leftResults.carTimeUs));		// winner if no foul AND (other track fouls OR faster time)
 }
 
-void transmitWinnerToSC(){
-	// Determine the winner mask: bit0=L, bit1=R, bit2=tie.
-	uint8_t winnerMask = 0;
-	if (leftResults.winner)  winnerMask |= 0b0001;
-	if (rightResults.winner) winnerMask |= 0b0010;
-	if (!leftResults.winner && !rightResults.winner) {
-		// Neither flagged winner – treat as tie.
-		winnerMask |= 0b0100;
-	}
-	txStatus win = txWinner(winnerMask);
-	switch (win) {
-		case TX_ACKED:										
-			txWinPending = false;						// winner transmission no longer pending
-			resetTxState(MSG_WINNER);
-			break;
-		case TX_TIMEOUT:
-		case TX_FAILED:
-			txWinPending = false;						// winner transmission failed
-			resetTxState(MSG_WINNER);					// reset transmit message
-			// No need for UI, worst case the SC doesn't flash lights for the winner,
-			// the finish times will still be displayed.
-			// future: log / transmit state transition error
-			break;
-		case TX_NONE:
-		case TX_SENT:
-		case TX_NACKED:
-		default:
-			break;
-	}
-}
-
 static void displayCarTimes() {	
 	updateDisplay(leftResults.carTimeUs, true);
 	updateDisplay(rightResults.carTimeUs, false);
@@ -406,3 +400,18 @@ static void displayReactionTimes() {
 /* =========================================================================
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
+void PendingTx::serviceNext() {
+	if (winner) {
+		uint8_t winnerMask = 0;
+		if (leftResults.winner)  winnerMask |= 0b0001;
+		if (rightResults.winner) winnerMask |= 0b0010;
+		if (!leftResults.winner && !rightResults.winner) winnerMask |= 0b0100;
+
+		txStatus s = txWinner(winnerMask);
+		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
+			winner = false;
+			resetTxState(MSG_WINNER);
+			// non-critical: finish times still display even if winner TX fails
+		}
+	}
+}
