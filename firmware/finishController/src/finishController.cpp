@@ -328,9 +328,9 @@ static void displayReactionTimes() {
 void PendingTx::serviceNext() {
 	if (winner) {
 		uint8_t winnerMask = 0;
-		if (leftResults.winner)  winnerMask |= 0b0001;
-		if (rightResults.winner) winnerMask |= 0b0010;
-		if (!leftResults.winner && !rightResults.winner) winnerMask |= 0b0100;
+		if (leftResults.winner)  winnerMask |= winner_leftWin;
+		if (rightResults.winner) winnerMask |= winner_rightWin;
+		if (!leftResults.winner && !rightResults.winner) winnerMask |= winner_tie;
 
 		txStatus s = txWinner(winnerMask);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
