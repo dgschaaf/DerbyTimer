@@ -30,7 +30,7 @@ enum raceMode : uint8_t {
 	MODE_GATEDROP,
 	MODE_REACTION,
 	MODE_PRO,
-	MODE_DIALIIN
+	MODE_DIALIIN   // Set only via BLE from Race Manager — not reachable through the mode button
 };
 
 #endif  // RACETYPES_H

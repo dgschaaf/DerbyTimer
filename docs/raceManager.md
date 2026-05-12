@@ -395,7 +395,7 @@ Post-event analytics to detect whether one lane has an inherent speed advantage.
 
 ### Dial-In Mode
 
-Gate Drop timing used to calculate a speed handicap per racer. Handicap would be applied to un-bias time trial standings or bracket seeding. Requires firmware changes (`MODE_DIALIIN` is defined in `raceTypes.h` but currently skipped in the mode cycle — P0-2).
+Gate Drop timing used to calculate a speed handicap per racer. Handicap would be applied to un-bias time trial standings or bracket seeding. `MODE_DIALIIN` is defined in `raceTypes.h` and is fully supported by both controllers — it is intentionally not reachable via the mode button because the handicap calculation requires historical run data that only the Race Manager holds. The RM activates it by writing the Set Mode BLE characteristic when the system is idle.
 
 ### USB Camera
 

@@ -10,7 +10,8 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 ### Core Capabilities
 
 #### Race Management
-* **Four Race Modes**: Gate Drop, Reaction Time, Pro Tree, and Dial-In (Dial-In is defined but not yet accessible via the mode button — the cycle skips from Pro back to Gate Drop)
+
+* **Four Race Modes**: Gate Drop, Reaction Time, Pro Tree, and Dial-In. The first three cycle via the mode button. Dial-In is only activated by a BLE command from the Race Manager — it requires historical run data to compute handicaps, which is beyond the scope of the standalone controllers.
 * **Six Race States**: Idle → Staging → Countdown → Racing → Complete → (back to Idle); Test state exists but immediately returns to Idle
 * **Automated Sequencing**: Handles complete race lifecycle with state-driven logic
 
@@ -66,14 +67,14 @@ IDLE ──[Start]──> STAGING ──[Start]──> COUNTDOWN ──[GO]─�
 
 #### Mode Machine Design
 
-Modes cycle via the Mode button (IDLE state only): Gate Drop → Reaction → Pro → Gate Drop. Each transition blinks the corresponding yellow light 3×.
+Modes cycle via the Mode button (IDLE state only): Gate Drop → Reaction → Pro → Gate Drop. Each transition blinks the corresponding yellow light 3×. Dial-In is the fourth mode but is not reachable through the button — it is only activated by the Race Manager via BLE. Once active, pressing the mode button returns to Gate Drop.
 
-| Mode | Light Pattern | Countdown Delay |
-|------|--------------|-----------------|
-| Gate Drop | Y1 | 500 ms per stage |
-| Reaction | Y2 | 500 ms per stage |
-| Pro Tree | Y3 | 400 ms per stage |
-| Dial-In | GO (not yet reachable) | 500 ms per stage |
+| Mode | Light Pattern | Countdown Delay | How Entered |
+|------|---------------|-----------------|-------------|
+| Gate Drop | Y1 | 500 ms per stage | Mode button |
+| Reaction | Y2 | 500 ms per stage | Mode button |
+| Pro Tree | Y3 | 400 ms per stage | Mode button |
+| Dial-In | GO | 500 ms per stage | BLE from Race Manager only |
 
 ### Key Design Decisions
 
@@ -156,7 +157,7 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 
 #### Adding Race Modes
 1. Extend `raceMode` enum in `raceTypes.h`
-2. Wire into the `nextMode()` switch in `modeMachine` (startController.cpp)
+2. If the mode should be reachable via the mode button, add it to `nextMode()` in `modeMachine` (startController.cpp). Modes only reachable via BLE (like Dial-In) are intentionally omitted from `nextMode()` but still need the `DIALIIN → GATEDROP` exit case so the operator can leave the mode via button.
 3. Define light pattern in both `selfTransition()` and `rxTransition()` of `modeMachine`
 4. Add countdown delay case in `tickCountdownState()` if different from 500 ms
 

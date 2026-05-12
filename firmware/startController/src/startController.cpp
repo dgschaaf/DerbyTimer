@@ -25,8 +25,8 @@ struct modeMachine {
 		switch(current) {
 			case MODE_GATEDROP:	target	= MODE_REACTION;	break;
 			case MODE_REACTION:	target	= MODE_PRO;			break;
-			case MODE_PRO:		target	= MODE_GATEDROP; 	break; // DIALIN not yet defined, will be next = MODE_DIALIIN;
-			case MODE_DIALIIN:	target	= MODE_GATEDROP;	break;
+			case MODE_PRO:		target	= MODE_GATEDROP;	break; // DIALIIN is skipped — only Race Manager can enter it via BLE
+			case MODE_DIALIIN:	target	= MODE_GATEDROP;	break; // exit path: operator can press mode to leave DIALIIN
 			default: 			target	= MODE_GATEDROP;	break;
 		}
 	}
