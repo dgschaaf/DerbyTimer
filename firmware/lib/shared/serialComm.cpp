@@ -356,7 +356,9 @@ void txNack(uint8_t nackID){
 // ************** Helper Functions **************
 void sendMessage(serialMsgID id, const uint8_t* data, uint8_t dataLen) {
     Serial.write((uint8_t)id);
-    Serial.write(data, dataLen);
+    if (dataLen > 0 && data != nullptr) {
+        Serial.write(data, dataLen);
+    }
 }
 
 uint8_t getExpectedPayloadLength(serialMsgID id) {
