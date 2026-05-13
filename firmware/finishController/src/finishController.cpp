@@ -38,6 +38,11 @@ struct PendingTx {
 	bool winner = false;
 
 	bool anyPending() const { return winner; }
+	void queue(serialMsgID id) {
+		if (id == MSG_WINNER) winner = true;
+		else return;
+		resetTxState(id);
+	}
 	void serviceNext();
 };
 
@@ -184,8 +189,7 @@ void finishControllerLoop() {
 				rx.DisplayAdvanceFlag	= false;
 				computeRaceTimes();
 				displayCarTimes();
-				pending.winner			= true;		// transmit winner once per race
-				resetTxState(MSG_WINNER);
+				pending.queue(MSG_WINNER);		// transmit winner once per race
 				stm.entry				= false;
 			}
 

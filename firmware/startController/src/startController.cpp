@@ -129,6 +129,17 @@ struct PendingTx {
 	bool anyPending() const {
 		return raceStart || foulStatus || leftReact || rightReact || dispAdv;
 	}
+	void queue(serialMsgID id) {
+		switch(id) {
+			case MSG_RACE_START:   raceStart  = true; break;
+			case MSG_FOUL:         foulStatus = true; break;
+			case MSG_LEFT_REACT:   leftReact  = true; break;
+			case MSG_RIGHT_REACT:  rightReact = true; break;
+			case MSG_DISP_ADVANCE: dispAdv    = true; break;
+			default: return;
+		}
+		resetTxState(id);
+	}
 	void serviceNext();	// out-of-line definition in helpers section below
 };
 
@@ -302,9 +313,7 @@ void startControllerLoop(){
 				foulMask						= 0;
 				if (raceResults.leftFoul)  foulMask |= foul_left;
 				if (raceResults.rightFoul) foulMask |= foul_right;
-				pending.foulStatus				= true;		// always send foul status on entry to RACING
-				resetTxState(MSG_FOUL);
-				// pending.raceStart was set in handleCountdownGoActions; resetTxState already called there
+				pending.queue(MSG_FOUL);		// always send foul status on entry to RACING
 			}
 
 			tNow 							= micros();
@@ -424,8 +433,7 @@ static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev
 	if (cdNow != cdPrev){
 		stm.target				= RACE_RACING;
 		raceTime.raceStartUs	= tn;
-		pending.raceStart		= true;
-		resetTxState(MSG_RACE_START);
+		pending.queue(MSG_RACE_START);
 
 		if (mdm.current == MODE_GATEDROP){
 			raceTime.leftStartUs	= tn;
@@ -502,14 +510,12 @@ static void handleTrackTriggers(){
 	if (isLeftPressed() && gateStatus.leftUp){
 		raceTime.leftStartUs	= tNow;
 		dropGate(gateL);
-		pending.leftReact		= true;
-		resetTxState(MSG_LEFT_REACT);
+		pending.queue(MSG_LEFT_REACT);
 	}
 	if (isRightPressed() && gateStatus.rightUp){
 		raceTime.rightStartUs	= tNow;
 		dropGate(gateR);
-		pending.rightReact		= true;
-		resetTxState(MSG_RIGHT_REACT);
+		pending.queue(MSG_RIGHT_REACT);
 	}
 }
 
@@ -521,8 +527,7 @@ static void handleTrackTriggers(){
 static void handleDisplayAdvance(){
 	if (isStartPressed() && startReleased){
 		startReleased		= false;
-		pending.dispAdv		= true;
-		resetTxState(MSG_DISP_ADVANCE);
+		pending.queue(MSG_DISP_ADVANCE);
 	}
 	if (!isStartPressed()) startReleased = true;
 }

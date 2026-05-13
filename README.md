@@ -156,7 +156,25 @@ Upload `derbySerialTester.ino` to one controller and `derbySerialResponder.ino` 
 
 ### Build
 
-Open `.ino` sketch files in Arduino IDE 1.8+. Select the correct board before compiling:
+### Option 1 — VS Code (recommended)
+
+A `.vscode/tasks.json` is included. With the project open in VS Code:
+
+- **Ctrl+Shift+B** — compiles the Start Controller (default build task)
+- **Terminal > Run Task... > Compile Finish Controller** — compiles the Finish Controller
+
+Requires `arduino-cli` to be on your PATH (or at `C:\Users\Darren\bin\arduino-cli.exe`).
+
+### Option 2 — arduino-cli (command line)
+
+```sh
+arduino-cli compile --fqbn arduino:avr:nano --library firmware/lib/shared firmware/startController/startController.ino
+arduino-cli compile --fqbn arduino:mbed_nano:nano33ble --library firmware/lib/shared firmware/finishController/finishController.ino
+```
+
+### Option 3 — Arduino IDE 1.8+
+
+Open the `.ino` sketch file and select the correct board before compiling:
 
 | Controller | Board |
 |------------|-------|
