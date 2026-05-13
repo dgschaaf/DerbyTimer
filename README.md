@@ -88,7 +88,7 @@ See schematic for full mapping. D18/D19 are used for buttons (corrected from ori
 - **Optical finish sensors** — SE61 sensors with 74HC14 Schmitt inverter for clean edges; ISR-driven with configurable active-high/low polarity
 - **Minimum race time filter** — 500 ms suppresses mechanical bounce false triggers
 - **Winner determination** — compares rounded car times; ties supported
-- **Dual 5-digit seven-segment displays** — driven via chained 74HC595 shift registers, 74HC137 digit demux, MC14543B BCD drivers
+- **Dual 5-digit seven-segment displays** — driven via 74HC238 decoder and MC14543B BCD driver, direct GPIO
 - **Display advance** — Start Controller signals when to cycle from finish time to reaction time view
 - **Car time computation** — reaction time subtracted (normal) or added (foul) from finish time; result rounded to nearest millisecond
 
@@ -98,7 +98,7 @@ See schematic for full mapping. D18/D19 are used for buttons (corrected from ori
 |--------|---------------|
 | `finishController.cpp` | State machine, race logic, winner determination |
 | `sensors.cpp` | ISR-based optical sensor handling with time filtering |
-| `display.cpp` | Shift-register display driver (BCD + digit demux) |
+| `display.cpp` | Direct GPIO display driver (74HC238 + MC14543B BCD) |
 
 ---
 
@@ -106,7 +106,7 @@ See schematic for full mapping. D18/D19 are used for buttons (corrected from ori
 
 Shared library: `firmware/lib/shared/serialComm.cpp/.h`
 
-**13 message types** over UART at 115,200 baud with ACK/NACK confirmation and 3-retry / 50 ms timeout.
+**12 message types** over UART at 115,200 baud with ACK/NACK confirmation and 3-retry / 50 ms timeout.
 
 | Direction | Messages |
 |-----------|----------|
@@ -114,7 +114,7 @@ Shared library: `firmware/lib/shared/serialComm.cpp/.h`
 | Finish → Start | `MSG_WINNER`, `MSG_RACE_STATE` |
 | Both | `MSG_ACK`, `MSG_NACK` |
 
-Shared enums (`raceState`, `raceMode`, `countdownState`) and bitmask constants are defined in `firmware/lib/shared/globals.h`.
+Shared enums (`raceState`, `raceMode`, `countdownState`) and bitmask constants are defined in `firmware/lib/shared/raceTypes.h`.
 
 ---
 
@@ -189,7 +189,7 @@ Serial monitor baud rate: **115,200** for both controllers.
 
 ### Adding a Race Mode
 
-1. Extend `raceMode` enum in `globals.h`
+1. Extend `raceMode` enum in `raceTypes.h`
 2. Add case to the mode-button handler in `startController.cpp`
 3. Define the corresponding light pattern in `lights.cpp`
 4. Implement countdown behavior if it differs from the standard sequence
