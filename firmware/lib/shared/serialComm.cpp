@@ -70,9 +70,11 @@ bool rxSerial() {
 				int32_t reaction;
 				Serial.readBytes((uint8_t*)&reaction, sizeof(reaction));
 				if (rx.ID == MSG_LEFT_REACT) {
-					rx.LeftReactionTime 	= reaction;
+					rx.LeftReactionTime  = reaction;
+					rx.LeftReactionValid = true;
 				} else {
-					rx.RightReactionTime 	= reaction;
+					rx.RightReactionTime  = reaction;
+					rx.RightReactionValid = true;
 				}
 				txAck(rx.ID);
 			}

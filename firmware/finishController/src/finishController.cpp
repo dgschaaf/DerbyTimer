@@ -157,10 +157,12 @@ void finishControllerLoop() {
 				race.rightRecorded		= false;
 				race.leftTimeUs			= 0;
 				race.rightTimeUs		= 0;
-				rx.RightReactionTime		= -1;
-				rx.LeftReactionTime		= -1;
+				rx.LeftReactionValid		= false;
+				rx.RightReactionValid	= false;
+				rx.LeftReactionTime		= 0;
+				rx.RightReactionTime	= 0;
 				rx.LeftFoul				= false;
-				rx.RightFoul				= false;
+				rx.RightFoul			= false;
 				stm.entry 				= false;
 				// Only arm if not already armed from COUNTDOWN state
 				if (race.raceStartUs	== 0){
@@ -212,7 +214,7 @@ void finishControllerLoop() {
 			break;
 			
 		case RACE_TEST:
-			// currently unused, just transition back to idle
+			// P2: self-test not yet implemented — falls back to IDLE (see project-status.md)
 			if(stm.entry){
 				stm.target 		= RACE_IDLE;
 				stm.entry 		= false;
@@ -274,13 +276,15 @@ void handleSensors() {
 }
 
 void handleRxReaction() {
-	if (rx.LeftReactionTime >= 0) {
+	if (rx.LeftReactionValid) {
 		leftResults.reactionTimeUs 	= (uint32_t)rx.LeftReactionTime;
-		rx.LeftReactionTime 			= -1;		// reset flag
+		rx.LeftReactionValid		= false;
+		rx.LeftReactionTime			= 0;
 	}
-	if (rx.RightReactionTime >= 0) {
-		rightResults.reactionTimeUs	= (uint32_t)rx.RightReactionTime;	
-		rx.RightReactionTime 		= -1;		// reset flag
+	if (rx.RightReactionValid) {
+		rightResults.reactionTimeUs	= (uint32_t)rx.RightReactionTime;
+		rx.RightReactionValid		= false;
+		rx.RightReactionTime		= 0;
 	}
 	if (rx.LeftFoul) {
 		leftResults.foul			= true;

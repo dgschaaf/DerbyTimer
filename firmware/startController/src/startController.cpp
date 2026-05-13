@@ -367,7 +367,7 @@ void startControllerLoop(){
 			}
 			break;
 			
-		case RACE_TEST:  // not currently implemented, return to idle
+		case RACE_TEST:  // P2: self-test not yet implemented — falls back to IDLE (see project-status.md)
 			if(stm.entry){
 				stm.selfTransition(RACE_IDLE);
 				stm.entry = false;

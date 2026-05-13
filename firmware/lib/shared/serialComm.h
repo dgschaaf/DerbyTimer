@@ -80,6 +80,8 @@ struct SerialRxState {
 	bool    RightWin            = false;
 	bool    Tie                 = false;
 	bool    DisplayAdvanceFlag  = false;
+	bool    LeftReactionValid   = false;
+	bool    RightReactionValid  = false;
 	int32_t LeftReactionTime    = 0;
 	int32_t RightReactionTime   = 0;
 };
