@@ -1,6 +1,8 @@
 #ifndef GATES_H
 #define GATES_H
 
+#include <Arduino.h>
+
 /**
  * @brief Configuration for the solenoid and electromagnets controlling the gates.
  *
@@ -19,9 +21,9 @@ struct gateStatusInfo {
 };
 
 // Globalc configuration instance (defined in gates.cpp)
-extern byte gateL;
-extern byte gateR;
-extern byte gateReturn;
+extern const byte gateL;
+extern const byte gateR;
+extern const byte gateReturn;
 
 extern gateStatusInfo gateStatus;
 

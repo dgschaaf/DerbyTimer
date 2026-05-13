@@ -1,6 +1,7 @@
 #ifndef LIGHTS_H
 #define LIGHTS_H
 
+#include <Arduino.h>
 #include "raceTypes.h"    // countdownState, raceMode used in buildLightConfig signature
 
 /**
