@@ -170,6 +170,7 @@ static bool winLightsPend				= false;		// marker if result lights need to displa
 
 // error
 static bool criticalTxError				= false;		// set on permanent failure of a critical message
+static errCode pendingErrorCode			= err_NULL;		// error code to report to FC on criticalTxError
 
 // button management
 static bool startReleased				= true;
@@ -215,6 +216,7 @@ void startControllerLoop(){
 	rxSerial();
 
 	if (criticalTxError) {
+		txError(pendingErrorCode);				// best-effort notify FC; idempotent after TX_FAILED/TX_TIMEOUT
 		updateLights(LIGHT_FL | LIGHT_FR);		// both red = critical failure, power-cycle required
 		return;
 	}
@@ -545,6 +547,7 @@ void PendingTx::serviceNext() {
 		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
 			raceStart = false;
 			resetTxState(MSG_RACE_START);
+			pendingErrorCode = err_START_TX_TIMEOUT;
 			criticalTxError = true;		// raceStart failure: FC sensors may not be armed
 		}
 		return;
@@ -552,7 +555,7 @@ void PendingTx::serviceNext() {
 	if (foulStatus) {
 		txStatus s = txFoulStatus(foulMask);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) criticalTxError = true;	// FC will compute wrong winner
+			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }	// FC will compute wrong winner
 			foulStatus = false;
 			resetTxState(MSG_FOUL);
 		}
@@ -561,7 +564,7 @@ void PendingTx::serviceNext() {
 	if (leftReact) {
 		txStatus s = txReactionTime(raceResults.leftReactUs, true);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) criticalTxError = true;	// FC will compute wrong car time
+			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }	// FC will compute wrong car time
 			leftReact = false;
 			resetTxState(MSG_LEFT_REACT);
 		}
@@ -570,7 +573,7 @@ void PendingTx::serviceNext() {
 	if (rightReact) {
 		txStatus s = txReactionTime(raceResults.rightReactUs, false);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) criticalTxError = true;
+			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			rightReact = false;
 			resetTxState(MSG_RIGHT_REACT);
 		}

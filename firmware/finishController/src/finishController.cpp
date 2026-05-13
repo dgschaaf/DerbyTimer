@@ -96,9 +96,25 @@ void finishControllerLoop() {
      */
 	rxSerial();
 
+	if (rx.lastErrorCode != err_NULL && !criticalTxError) {
+		criticalTxError = true;
+	}
+
 	if (criticalTxError) {
-		clearDisplay(true);		// blank both displays
-		clearDisplay(false);
+		static unsigned long lastBlink = 0;
+		static bool blinkOn = false;
+		unsigned long now = millis();
+		if (now - lastBlink >= 500) {
+			lastBlink = now;
+			blinkOn = !blinkOn;
+			if (blinkOn) {
+				updateDisplay(88888000UL, true);
+				updateDisplay(88888000UL, false);
+			} else {
+				clearDisplay(true);
+				clearDisplay(false);
+			}
+		}
 		return;
 	}
 
