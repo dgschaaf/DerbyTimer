@@ -78,6 +78,10 @@ struct modeMachine {
 	}
 	
 	void rxTransition(raceMode serialTgt) {
+		if (serialTgt >= MODE_COUNT) {
+			txNack(MSG_RACE_MODE);
+			return;
+		}
 		// 1. Check if already in target mode
         if (serialTgt == current) {
             return;
