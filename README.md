@@ -28,7 +28,7 @@ The **Start Controller** manages gates, lights, buttons, and race sequencing. Th
 | Gate Drop | Both gates release simultaneously; no reaction time |
 | Reaction Time | Cars held at gate; release time measured per lane |
 | Pro Tree | Accelerated countdown sequence (400 ms steps) |
-| Dial-In | Reserved for future use |
+| Dial-In | BLE-activated only (Race Manager required); not accessible via the mode button. Pressing Mode while active returns to Gate Drop |
 
 ## Race State Flow
 
@@ -52,7 +52,7 @@ The Start Controller drives state transitions and notifies the Finish Controller
 - **Christmas Tree lights** — dual 6-light arrays (Blue, Yellow×3, Green, Red) via 74HC595 shift register
 - **Reaction time measurement** — microsecond precision using `micros()` from gate-open to car release
 - **Foul detection** — early release during countdown logged and flagged per lane
-- **Four button inputs** — Start, Mode, Left Lane, Right Lane with debouncing
+- **Four button inputs** — Start, Mode, Left Lane, Right Lane; hardware-debounced via Schmitt triggers on the PCB shield
 
 ### Module Structure
 
@@ -193,6 +193,18 @@ Serial monitor baud rate: **115,200** for both controllers.
 2. Add case to the mode-button handler in `startController.cpp`
 3. Define the corresponding light pattern in `lights.cpp`
 4. Implement countdown behavior if it differs from the standard sequence
+
+---
+
+## Known Limitations
+
+The following are intentional v1.0 scope boundaries, not bugs:
+
+- **BLE / Race Manager** — The Finish Controller's Nordic radio is unused. BLE integration is planned for the `feature-raceManager` branch. Placeholder call sites are marked `// future:` in source.
+- **RFID car identification** — Not implemented in v1.0. Reserved for the `feature-rfid` branch.
+- **Dial-In mode** — Implemented in firmware but only activatable via BLE from a Race Manager. Cannot be selected via the mode button in standalone operation.
+- **No automated tests** — Verification is manual bench testing only. No unit test suite exists.
+- **Growth feature branches** — `feature-rfid` and `feature-raceManager` are design and early development branches. They are not merged to main, are not guaranteed to compile, and are not part of v1.0 scope.
 
 ---
 

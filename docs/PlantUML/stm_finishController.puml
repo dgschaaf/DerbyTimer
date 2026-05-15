@@ -87,7 +87,7 @@ end note
 ' ============================================================
 state "Racing" as Racing {
   Racing : entry / reset race.leftRecorded, rightRecorded, leftTimeUs, rightTimeUs
-  Racing : entry / reset rx.LeftReactionTime = rx.RightReactionTime = -1
+  Racing : entry / reset rx.LeftReactionValid = rx.RightReactionValid = false
   Racing : entry / reset rx.LeftFoul = rx.RightFoul = false
   Racing : entry / if raceStartUs == 0 then armSensors(micros())
   Racing : do / handleSensors()
@@ -101,9 +101,10 @@ note right of Racing
   handleSensors(): polls ISR volatile flags.
   Records elapsed time (micros() - raceStartUs)
   or maxRaceTimeUs (10 s) if lane times out.
-  handleRxReaction(): reads rx.LeftReactionTime
-  and rx.RightReactionTime (int32_t, -1 = not yet rx'd)
-  and stores into leftResults / rightResults structs.
+  handleRxReaction(): reads rx.LeftReactionTime /
+  rx.RightReactionTime (uint32_t) guarded by
+  LeftReactionValid / RightReactionValid bool flags;
+  stores into leftResults / rightResults structs.
 end note
 
 ' ============================================================

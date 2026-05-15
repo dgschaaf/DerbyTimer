@@ -21,7 +21,8 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 * **Christmas Tree Lights**: Dual 6-light arrays (Blue, Yellow×3, Green, Red) via 74HC595 shift register
 
 #### User Interface
-* **Four Button Inputs**: Start (A6), Mode (A7), Left Lane (D18), Right Lane (D19)
+
+* **Four Button Inputs**: Start (A6), Mode (A7), Left Lane (D18), Right Lane (D19) — all hardware-debounced via Schmitt triggers on the PCB shield; no software debounce required
 * **Visual Feedback**: LED patterns indicate mode, state, and race status
 * **Foul Detection**: Red light indication for false starts in reaction modes
 

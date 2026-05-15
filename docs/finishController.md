@@ -32,7 +32,7 @@ Race state transitions are driven externally via messages from the start control
 **RACE_RACING** – On entry, recording flags and times are reset. Sensors are armed if not already armed from COUNTDOWN. Each loop iteration:
 
 1. *handleSensors*() polls *isLeftFinished*() / *isRightFinished*() and records finish times. If *maxRaceTimeUs* elapses before a sensor triggers, the max time is recorded for that lane.
-2. *handleRxReaction*() reads `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul` from the *SerialRxState* struct (updated by *rxSerial*()) and stores them in the per‑lane *raceResults* structs. Reaction times are typed as `int32_t` and initialised to −1; a value ≥ 0 indicates a valid reading.
+2. *handleRxReaction*() reads `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul` from the *SerialRxState* struct (updated by *rxSerial*()) and stores them in the per‑lane *raceResults* structs. Reaction times are stored as `uint32_t`; companion flags `rx.LeftReactionValid` / `rx.RightReactionValid` indicate whether a value has been received this race (both cleared to `false` on RACING entry).
 3. Once both lanes are recorded, *stm.target* is set to *RACE_COMPLETE* and the state machine transitions.
 
 **RACE_COMPLETE** – On entry:
@@ -46,7 +46,7 @@ Race state transitions are driven externally via messages from the start control
 
 On subsequent *MSG_DISP_ADVANCE* events (triggered by the operator pressing Start on the start controller):
 
-* If *needReact* is true: *displayReactionTimes*() is called and *needReact* is cleared.
+* If *needReact* is true: *displayReactionTimes*() is called and *needReact* is cleared. (Note: clearing *needReact* inside *displayReactionTimes* is required; if omitted, repeated display-advance presses will loop on reaction display and the state machine cannot reach IDLE — see P0-9.)
 * Otherwise: the state machine targets *RACE_IDLE* and calls *txRaceState(RACE_IDLE)* to coordinate return to idle with the start controller.
 
 ---
@@ -105,7 +105,7 @@ The firmware drives two 5‑digit seven‑segment displays via direct GPIO. `upd
 
 The finish controller communicates with the start controller over a serial connection handled by *serialComm*. The protocol defines **12 message types** (MSG_NULL through MSG_DISP_ADVANCE). Key elements:
 
-* **`rxSerial()`** – Called on every loop iteration. Parses incoming messages and updates the global `SerialRxState rx` struct. Fields used by the finish controller include `rx.State`, `rx.Mode`, `rx.RaceStart`, `rx.LeftFoul`, `rx.RightFoul`, `rx.LeftReactionTime`, `rx.RightReactionTime`, and `rx.DisplayAdvanceFlag`.
+* **`rxSerial()`** – Called on every loop iteration. Parses incoming messages and updates the global `SerialRxState rx` struct. Fields used by the finish controller include `rx.State`, `rx.Mode`, `rx.RaceStart`, `rx.LeftFoul`, `rx.RightFoul`, `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftReactionValid`, `rx.RightReactionValid`, and `rx.DisplayAdvanceFlag`.
 * **`txWinner(uint8_t winnerMask)`** – Sends MSG_WINNER to the start controller. Bit 0 = left wins, bit 1 = right wins, bit 2 = tie.
 * **`txRaceState(raceState newState)`** – Requests a coordinated state change. Used by the finish controller to initiate the return to RACE_IDLE from RACE_COMPLETE. Transitions are committed only when the start controller sends an ACK; TX_TIMEOUT or TX_FAILED causes the attempt to be abandoned.
 * **`resetTxState(serialMsgID id)`** – Resets the TX state machine for a given message ID after a transaction completes or fails.
