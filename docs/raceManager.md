@@ -97,12 +97,14 @@ struct BLEHeatResult {
     uint32_t carTimeUsRight;
     uint32_t raceTimeUsLeft;        // Raw sensor time, µs
     uint32_t raceTimeUsRight;
-    int32_t  reactionTimeUsLeft;    // µs; -1 if not applicable (GATEDROP mode)
-    int32_t  reactionTimeUsRight;
+    uint32_t reactionTimeUsLeft;    // µs; see OQ-RM4 for how to signal "not applicable"
+    uint32_t reactionTimeUsRight;
     uint8_t  foulMask;              // bit0 = left foul, bit1 = right foul
     uint8_t  winnerMask;            // bit0 = left wins, bit1 = right wins, bit2 = tie
 };
 ```
+
+> **OQ-RM4** — How should the BLE payload signal that reaction time is not applicable? Three candidates: (a) match the firmware's `reactionValidMask` pattern (`uint8_t`, bit0=left valid, bit1=right valid); (b) rely on `foulMask` + mode — a foul lane has no reaction time, and GATEDROP mode has no reaction times at all, so the Race Manager can infer validity without an extra field; (c) decide based on BLE best practices once the GATT layer is being designed. Defer to Phase 1.
 
 This mirrors data already computed in `finishController.cpp` `RACE_COMPLETE`.
 
@@ -247,11 +249,17 @@ Once a racer has completed all configured runs:
 
 At any time the operator can select a racer's row and edit individual run times (e.g. to remove a bad result, correct an entry). All edits are logged.
 
+### Incomplete Runs
+
+Racers who have not completed all configured runs are **still eligible for bracket seeding** — they are seeded by their best available time. Missing runs are left as null in the database; no placeholder entry is required.
+
+Before the operator transitions from Time Trial to Bracket mode, the Race Manager warns if any racers have fewer than the configured number of runs. This is a warning only — the operator can proceed. The operator may also mark any racer as **Scratch** at this point (or at any time), which removes them from the bracket entirely.
+
 ### Places Calculation
 
-Once all checked-in racers have completed their runs (or after operator manually triggers it):
+Once all checked-in, non-scratched racers have completed their runs (or after operator manually triggers it):
 
-- Time trial places are calculated (1st, 2nd, 3rd) by best time
+- Time trial places are calculated (1st, 2nd, 3rd) by best available time
 - Places are **not displayed automatically** — they are revealed at Race Day Complete
 - Calculated places are used to seed the bracket if Bracket mode follows
 
@@ -263,9 +271,10 @@ Reaction mode on the hardware corresponds to Bracket mode in the Race Manager. T
 
 ### Bracket Generation
 
-1. When the operator enters Bracket mode, the Race Manager generates a single-elimination or double-elimination bracket from all checked-in racers
-2. If time trial results are available (fully or partially completed), the bracket is **seeded by time trial best time** — fastest car gets the most favorable bracket position
-3. If no time trial data exists, seeding is random or manual
+1. When the operator enters Bracket mode, the Race Manager generates a single-elimination or double-elimination bracket from all checked-in, non-scratched cars
+2. Bracket size is the next power of 2 at or above the car count (e.g. 18 cars → 32-car bracket)
+3. Byes fill the remaining slots and are awarded to the **top seeds** (fastest time trial times) — the fastest cars are rewarded with a first-round bye
+4. If time trial results are available (fully or partially completed), seeding is by best available time; if no time trial data exists, seeding is random or manual
 
 **Elimination format:** Single elimination (default) or double elimination — set in Settings.
 
@@ -303,8 +312,8 @@ At any time the operator can select a racer in the bracket and mark them as a **
 
 | Scenario | Outcome |
 | --- | --- |
-| One car fouls | Fouling car is **disqualified**; opponent wins automatically |
-| Both cars foul | **Re-race** — heat is re-inserted as the current matchup |
+| One car fouls | Fouling car is **disqualified** (DQ); opponent wins automatically; result recorded |
+| Both cars foul | **Rerun** — no result recorded; matchup returned immediately to the front of the queue as "now racing" (the on-deck matchup is not advanced); repeated until a valid result is produced |
 
 ### Manual Winner Override
 
@@ -343,15 +352,18 @@ When the operator selects **Race Day Complete**:
 1. The application calculates final results:
    - **Time Trial:** 1st, 2nd, 3rd place by best time
    - **Bracket:** Winner, runner-up (and 3rd/4th if double elimination)
-   - **Best Reaction Time:** Fastest reaction time across all bracket heats
+   - **Best Reaction Time:** Fastest single reaction time of the night (event-wide minimum across all racers' personal best reaction times). Consolation award — displayed alongside each racer's best and average reaction time so kids can compare.
 2. A **celebration reveal screen** is shown — operator-controlled, screen advances manually to reveal each award (builds suspense)
 3. Optionally, the operator enters the **Best in Show** award winner(s) and places (judged separately before closing)
 4. All results are saved to the persistent database (see [Persistent Database](#persistent-database))
 
 ### Best in Show
 
-- Separate judged award; not based on race times
-- Operator enters winner name and 2nd/3rd place if applicable before closing the session
+- Separate judged award for car design, creativity, craftsmanship, humor, or other subjective qualities — entirely independent of race results
+- Judged by an external panel designated by the organizer (not the Race Manager operator)
+- Configurable divisions per event: zero, one, or two age-based divisions (typical split: Younger 3rd–5th grade, Older 6th–8th grade). All cars race together regardless of division.
+- Up to 3 places per division; 2nd and 3rd are optional — operator leaves blank if not awarded
+- Operator enters winner names manually after judging, before closing the session
 - Saved to database alongside race results
 
 ---
@@ -395,7 +407,9 @@ Post-event analytics to detect whether one lane has an inherent speed advantage.
 
 ### Dial-In Mode
 
-Gate Drop timing used to calculate a speed handicap per racer. Handicap would be applied to un-bias time trial standings or bracket seeding. `MODE_DIALIIN` is defined in `raceTypes.h` and is fully supported by both controllers — it is intentionally not reachable via the mode button because the handicap calculation requires historical run data that only the Race Manager holds. The RM activates it by writing the Set Mode BLE characteristic when the system is idle.
+Gate Drop timing used to calculate a speed handicap per racer. `MODE_DIALIIN` is defined in `raceTypes.h` and is fully supported by both controllers — it is intentionally not reachable via the mode button because the handicap calculation requires historical run data that only the Race Manager holds. The RM activates it by writing the Set Mode BLE characteristic when the system is idle.
+
+> **Mechanic TBD — research required.** Two candidate approaches: (a) adjust race results mathematically by each car's handicap after the heat; (b) adjust the countdown light timing per lane so slower cars get an earlier GO signal (requires hardware support for per-lane countdown delay). Real drag strip "dial-in" conventions should be reviewed before committing to either approach. This feature was suggested by a participant and is intentionally vague until researched.
 
 ### USB Camera
 
@@ -432,7 +446,7 @@ At any time after heats are run (and required after Race Day Complete):
 
 - **CSV export** — all heat results, per-racer times, standings, reaction times
 - **PDF export** (stretch) — formatted results sheet suitable for printing and posting
-- Export includes: racer name, car number, all run times, best time, time trial place, bracket result, best reaction time, foul count
+- Export includes: racer name, car number, all run times, best time, time trial place, bracket result, best reaction time, average reaction time, foul count
 
 ---
 
@@ -462,7 +476,8 @@ SeasonResult {
     bestTimeTrial   : µs?          // Best time trial time
     timeTrialPlace  : int?         // 1st, 2nd, 3rd, etc.
     bracketPlace    : int?         // 1 = winner, 2 = runner-up, etc.
-    bestReactTime   : µs?          // Best reaction time across bracket heats
+    bestReactTime   : µs?          // Fastest single reaction time across all bracket heats
+    avgReactTime    : µs?          // Average reaction time across all bracket heats
     bestInShowPlace : int?         // If awarded
 }
 ```
@@ -497,6 +512,7 @@ Configurable per event (stored with the session, not globally):
 | Setting                 | Default | Description                                   |
 | ----------------------- | ------- | --------------------------------------------- |
 | Time trial runs per car | 5       | How many Gate Drop runs are recorded per car  |
+| Best in Show divisions  | 1       | 0 none, 1 single, 2 Younger/Older age groups  |
 
 ---
 
@@ -558,6 +574,8 @@ Configurable per event (stored with the session, not globally):
 | OQ-RM1 | What application framework? Needs research — no decision made. | Drives all of Phase 2 architecture; must be resolved before coding begins |
 | OQ-RM2 | RFID car ID format — single byte, multi-byte UID, other? | Affects `BLEHeatResult` struct and GATT characteristic sizing; resolved when RFID branch is designed |
 | OQ-RM3 | Grade/age field: store graduating class and back-calculate, store raw grade, or omit entirely? | Low urgency; doesn't affect race logic |
+| OQ-RM4 | BLE payload: how to signal reaction time "not applicable"? Candidates: (a) `reactionValidMask` byte matching firmware pattern; (b) infer from `foulMask` + mode — no extra field needed; (c) decide when designing the GATT layer. Defer to Phase 1. | Affects `BLEHeatResult` struct size and Race Manager parsing logic |
+| OQ-RM5 | Schema: should the `Racer` record be split into a persistent `Person` (name, lifetime records) and an annual `Car` (carNumber, rfidCarID, year)? Current schema conflates both. A racer has a different car each year; car is the annual entity, racer is the persistent one. Low urgency — resolve when beginning database design in Phase 5. | Affects foreign key structure in `HeatResult` and `SeasonResult`; name display throughout UI |
 
 ---
 
