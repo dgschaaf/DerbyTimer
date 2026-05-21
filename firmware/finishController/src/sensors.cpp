@@ -46,7 +46,7 @@ void armSensors(uint32_t raceStartMicros) {
     interrupts();
 
     // Attach interrupts on the configured edge.
-    int edge = config.activeHigh ? RISING : FALLING;
+    PinStatus edge = config.activeHigh ? RISING : FALLING;
     attachInterrupt(digitalPinToInterrupt(config.leftPin),  leftSensorISR,  edge);
     attachInterrupt(digitalPinToInterrupt(config.rightPin), rightSensorISR, edge);
 }
