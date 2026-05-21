@@ -100,8 +100,13 @@ struct BLEHeatResult {
     uint32_t reactionTimeUsLeft;    // µs; see OQ-RM4 for how to signal "not applicable"
     uint32_t reactionTimeUsRight;
     uint8_t  foulMask;              // bit0 = left foul, bit1 = right foul
-    uint8_t  winnerMask;            // bit0 = left wins, bit1 = right wins, bit2 = tie
+    uint8_t  winnerMask;            // bit0 = left wins, bit1 = right wins, bit2 = tie, bit3 = no result (double foul / aborted)
 };
+
+// Note: foul reaction time (how early the driver jumped) is included in reactionTimeUsLeft/Right
+// even for foul lanes. The track display blanks foul lanes (BCD hardware cannot label the number),
+// but the Race Manager SHOULD surface foul reaction time with a proper label ("jumped X.XXX s early")
+// as coaching feedback. Use foulMask to determine which lanes to label accordingly.
 ```
 
 > **OQ-RM4** — How should the BLE payload signal that reaction time is not applicable? Three candidates: (a) match the firmware's `reactionValidMask` pattern (`uint8_t`, bit0=left valid, bit1=right valid); (b) rely on `foulMask` + mode — a foul lane has no reaction time, and GATEDROP mode has no reaction times at all, so the Race Manager can infer validity without an extra field; (c) decide based on BLE best practices once the GATT layer is being designed. Defer to Phase 1.
