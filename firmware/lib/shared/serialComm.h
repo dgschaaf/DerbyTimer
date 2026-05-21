@@ -1,6 +1,8 @@
 #ifndef serialComm_H
 #define serialComm_H
 
+#include "raceTypes.h"
+
 // -------------------- Wire Protocol Bitmasks --------------------
 // These define how flags are packed into message payloads.
 // Winner event codes (used in MSG_WINNER payload)
@@ -94,7 +96,7 @@ bool rxSerial();
 txStatus txRaceMode(uint8_t newMode);      // pass (uint8_t)currentMode
 txStatus txRaceState(uint8_t newState);    // pass (uint8_t)newState
 txStatus txRaceStart(uint8_t start);
-txStatus txReactionTime(uint32_t reactionTime, bool isLeft);
+txStatus txReactionTime(uint32_t reactionTime, Lane lane);
 txStatus txFoulStatus(uint8_t foul);
 txStatus txWinner(uint8_t winner);
 txStatus txDisplayAdvance();

@@ -110,11 +110,11 @@ void finishControllerLoop() {
 			lastBlink = now;
 			blinkOn = !blinkOn;
 			if (blinkOn) {
-				updateDisplay(88888000UL, true);
-				updateDisplay(88888000UL, false);
+				updateDisplay(88888000UL, LANE_LEFT);
+				updateDisplay(88888000UL, LANE_RIGHT);
 			} else {
-				clearDisplay(true);
-				clearDisplay(false);
+				clearDisplay(LANE_LEFT);
+				clearDisplay(LANE_RIGHT);
 			}
 		}
 		return;
@@ -124,8 +124,8 @@ void finishControllerLoop() {
 		case RACE_IDLE:
 			if(stm.entry){
 				stm.entry 			= false;
-				clearDisplay(true);
-				clearDisplay(false);
+				clearDisplay(LANE_LEFT);
+				clearDisplay(LANE_RIGHT);
 			}
 
 			if (rx.Mode != currentMode){
@@ -343,19 +343,19 @@ static HeatResults computeHeatResults(
 }
 
 static void displayCarTimes() {
-	if (heatResult.left.foul)  clearDisplay(true);
-	else updateDisplay(heatResult.left.carTimeUs, true);
+	if (heatResult.left.foul)  clearDisplay(LANE_LEFT);
+	else updateDisplay(heatResult.left.carTimeUs, LANE_LEFT);
 
-	if (heatResult.right.foul) clearDisplay(false);
-	else updateDisplay(heatResult.right.carTimeUs, false);
+	if (heatResult.right.foul) clearDisplay(LANE_RIGHT);
+	else updateDisplay(heatResult.right.carTimeUs, LANE_RIGHT);
 }
 
 static void displayReactionTimes() {
-	if (heatResult.left.foul)  clearDisplay(true);
-	else updateDisplay(heatResult.left.reactionTimeUs, true);
+	if (heatResult.left.foul)  clearDisplay(LANE_LEFT);
+	else updateDisplay(heatResult.left.reactionTimeUs, LANE_LEFT);
 
-	if (heatResult.right.foul) clearDisplay(false);
-	else updateDisplay(heatResult.right.reactionTimeUs, false);
+	if (heatResult.right.foul) clearDisplay(LANE_RIGHT);
+	else updateDisplay(heatResult.right.reactionTimeUs, LANE_RIGHT);
 }
 
 /* =========================================================================

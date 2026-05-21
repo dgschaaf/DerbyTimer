@@ -5,8 +5,7 @@
 
 // **************** RACE DOMAIN ENUMERATIONS ****************
 // These enums define the shared language of the race.
-// Both controllers include this header. serialComm.h does NOT —
-// it works with uint8_t and lets callers interpret the values.
+// Both controllers include this header. serialComm.h also includes it for Lane.
 
 enum raceState : uint8_t {
 	RACE_IDLE,

@@ -562,7 +562,7 @@ void PendingTx::serviceNext() {
 		return;
 	}
 	if (leftReact) {
-		txStatus s = txReactionTime(raceResults.leftReactUs, true);
+		txStatus s = txReactionTime(raceResults.leftReactUs, LANE_LEFT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }	// FC will compute wrong car time
 			leftReact = false;
@@ -571,7 +571,7 @@ void PendingTx::serviceNext() {
 		return;
 	}
 	if (rightReact) {
-		txStatus s = txReactionTime(raceResults.rightReactUs, false);
+		txStatus s = txReactionTime(raceResults.rightReactUs, LANE_RIGHT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			rightReact = false;

@@ -44,12 +44,12 @@ void setupDisplay() {
     digitalWrite(PIN_LANE2, HIGH);
 
     // Clear both displays on boot
-    updateDisplay(0, true);
-    updateDisplay(0, false);
+    updateDisplay(0, LANE_LEFT);
+    updateDisplay(0, LANE_RIGHT);
 }
 
 // -------------------------------------------
-static void writeDigit(uint8_t idx, uint8_t val, bool showDecimal, bool isLeft) {
+static void writeDigit(uint8_t idx, uint8_t val, bool showDecimal) {
 
     // Decimal point
     digitalWrite(PIN_DECIMAL, showDecimal ? HIGH : LOW);
@@ -70,7 +70,7 @@ static void writeDigit(uint8_t idx, uint8_t val, bool showDecimal, bool isLeft) 
 }
 
 // -------------------------------------------
-void updateDisplay(uint32_t timeUs, bool isLeft) {
+void updateDisplay(uint32_t timeUs, Lane lane) {
     
     // Rounds time in us to ms
     uint32_t tMs = (timeUs + 500) / 1000;               // round time to the nearest millisecond
@@ -84,7 +84,7 @@ void updateDisplay(uint32_t timeUs, bool isLeft) {
     d[4] =  tMs          % 10;  // thousandths
 
     // Lane enable (E2 = HIGH to activate)
-    if (isLeft) {
+    if (lane == LANE_LEFT) {
         digitalWrite(PIN_LANE1, LOW);
         digitalWrite(PIN_LANE2, HIGH);
     } else {
@@ -94,7 +94,7 @@ void updateDisplay(uint32_t timeUs, bool isLeft) {
 
     for (uint8_t i = 0; i < NUM_DIGITS; ++i) {
         bool dec = (i == 1);
-        writeDigit(i, d[i], dec, isLeft);
+        writeDigit(i, d[i], dec);
     }
 
     // Disable both lanes afterward
@@ -121,10 +121,10 @@ static void writeBlankDigit(uint8_t idx)
     delayMicroseconds(30);
 }
 
-void clearDisplay(bool isLeft)
+void clearDisplay(Lane lane)
 {
     // ACTIVE LOW enable logic
-    if (isLeft) {
+    if (lane == LANE_LEFT) {
         digitalWrite(PIN_LANE1, LOW);
         digitalWrite(PIN_LANE2, HIGH);
     } else {

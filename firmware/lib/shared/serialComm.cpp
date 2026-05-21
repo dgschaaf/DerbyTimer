@@ -213,9 +213,9 @@ txStatus txRaceStart(uint8_t start){
 	}
 }
 
-txStatus txReactionTime(uint32_t reactionTime, bool isLeft){
+txStatus txReactionTime(uint32_t reactionTime, Lane lane){
 	serialMsgID msgID;
-	if (isLeft){
+	if (lane == LANE_LEFT){
 		msgID 				= MSG_LEFT_REACT;			// set message ID
 	} else {
 		msgID 				= MSG_RIGHT_REACT;			// set message ID
