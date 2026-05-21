@@ -227,8 +227,8 @@ void startControllerLoop(){
 				stm.entry		= false;
 				cd.state 		= CD_IDLE;
 				updateLights(LIGHT_OFF);
-				dropGate(gateL);
-				dropGate(gateR);
+				dropGate(LANE_LEFT);
+				dropGate(LANE_RIGHT);
 				modeReleased	= true;
 				startReleased	= true;
 
@@ -265,10 +265,10 @@ void startControllerLoop(){
 
 			updateBlink();
 
-			if(gateStatus.returnActive)	returnGates();					// call this until it returnActive is false
+			updateGates();
 
 			if (!blinkState.active){
-				if (isStartPressed())	stm.target = RACE_COUNTDOWN;	// Start moves to COUNTDOWN
+				if (isStartPressed() && areLanesReady())	stm.target = RACE_COUNTDOWN;	// Start moves to COUNTDOWN
 				if (isModePressed())	stm.target = RACE_IDLE;			// Mode returns to IDLE
 			}
 
@@ -323,10 +323,10 @@ void startControllerLoop(){
 			if (mdm.current != MODE_GATEDROP){
 				handleTrackTriggers();
 
-				if (!gateStatus.leftUp && raceResults.leftReactUs == 0){
+				if (!isLaneUp(LANE_LEFT) && raceResults.leftReactUs == 0){
 					raceResults.leftReactUs	= calcReactionTimes(raceResults.leftFoul, raceTime.raceStartUs, raceTime.leftStartUs);
 				}
-				if (!gateStatus.rightUp && raceResults.rightReactUs == 0){
+				if (!isLaneUp(LANE_RIGHT) && raceResults.rightReactUs == 0){
 					raceResults.rightReactUs	= calcReactionTimes(raceResults.rightFoul, raceTime.raceStartUs, raceTime.rightStartUs);
 				}
 			}
@@ -417,15 +417,15 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode){
 	// Helper function to monitor for early starts during countdown
 	// Watch for the triggers (given right mode).  Drop the gate but store a foul.
 	if (mode != MODE_GATEDROP){
-		if (isLeftPressed() && gateStatus.leftUp){
+		if (isLeftPressed() && isLaneUp(LANE_LEFT)){
 			raceTime.leftStartUs	= tn;
 			raceResults.leftFoul	= true;
-			dropGate(gateL);
+			dropGate(LANE_LEFT);
 		}
-		if (isRightPressed() && gateStatus.rightUp){
+		if (isRightPressed() && isLaneUp(LANE_RIGHT)){
 			raceTime.rightStartUs	= tn;
 			raceResults.rightFoul	= true;
-			dropGate(gateR);
+			dropGate(LANE_RIGHT);
 		}
 	}
 }
@@ -440,8 +440,8 @@ static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev
 		if (mdm.current == MODE_GATEDROP){
 			raceTime.leftStartUs	= tn;
 			raceTime.rightStartUs	= tn;
-			dropGate(gateL);
-			dropGate(gateR);
+			dropGate(LANE_LEFT);
+			dropGate(LANE_RIGHT);
 		}
 	}
 }
@@ -509,14 +509,14 @@ uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart){
 }
 
 static void handleTrackTriggers(){
-	if (isLeftPressed() && gateStatus.leftUp){
+	if (isLeftPressed() && isLaneUp(LANE_LEFT)){
 		raceTime.leftStartUs	= tNow;
-		dropGate(gateL);
+		dropGate(LANE_LEFT);
 		pending.queue(MSG_LEFT_REACT);
 	}
-	if (isRightPressed() && gateStatus.rightUp){
+	if (isRightPressed() && isLaneUp(LANE_RIGHT)){
 		raceTime.rightStartUs	= tNow;
-		dropGate(gateR);
+		dropGate(LANE_RIGHT);
 		pending.queue(MSG_RIGHT_REACT);
 	}
 }

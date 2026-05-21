@@ -2,36 +2,21 @@
 #define GATES_H
 
 #include <Arduino.h>
+#include "raceTypes.h"
 
 /**
- * @brief Configuration for the solenoid and electromagnets controlling the gates.
+ * Gates module — controls the left/right electromagnet gates and return solenoid.
  *
- * Left gate is D4, right gate is D7, return solenoid is D6.+
- * 
- * Return energizes the electromagnets and briefly 
- * energizes the solenoid to push them up
+ * Left gate D4, right gate D7, return solenoid D6.
+ * Energizing an electromagnet holds the gate up; de-energizing lets the spring drop it.
+ * The solenoid briefly pushes both gates up into the magnets during the return sequence.
  */
 
-struct gateStatusInfo {
-	bool returnActive;
-	bool leftUp;
-	bool rightUp;
-	unsigned long returnTime;
-	uint16_t waitTime;
-};
-
-// Globalc configuration instance (defined in gates.cpp)
-extern const byte gateL;
-extern const byte gateR;
-extern const byte gateReturn;
-
-extern gateStatusInfo gateStatus;
-
-// Setup/teardown
 void setupGates();
+void returnGates();          // one-shot: begin gate return sequence
+void updateGates();          // call each tick in STAGING: drives return to completion
+void dropGate(Lane lane);    // idempotent: no-op if gate already down
+bool isLaneUp(Lane lane);    // is this lane's gate currently held up?
+bool areLanesReady();        // return sequence complete and both gates up
 
-// Public API
-void dropGate(byte gatePin);
-void returnGates();
-
-#endif	// GATES_H
+#endif  // GATES_H

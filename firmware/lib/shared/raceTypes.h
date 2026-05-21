@@ -34,4 +34,9 @@ enum raceMode : uint8_t {
 	MODE_COUNT     // sentinel — used for bounds checking only, not a valid mode
 };
 
+enum Lane : uint8_t {
+	LANE_LEFT,
+	LANE_RIGHT
+};
+
 #endif  // RACETYPES_H
