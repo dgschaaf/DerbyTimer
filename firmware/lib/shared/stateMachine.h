@@ -54,27 +54,27 @@ struct stateMachine {
 		// 3. Set intention to transition
 		target = newState;
 
-		// 4. Attempt coordinated change — cast to uint8_t for serialComm API
-		txStatus result = txRaceState((uint8_t)target);
-		switch (result) {
+		// 4. Enqueue coordinated change (no-op if already in flight)
+		txRaceState((uint8_t)target);
+
+		// 5. Check current TX status
+		switch (txStatusOf(MSG_RACE_STATE)) {
 
 			case TX_ACKED:
 				// Transition confirmed, commit
-				entry   = true;     // next loop: run entry logic
-				current = target;   // commit new state
-				exit    = true;     // run exit logic
-				resetTxState(MSG_RACE_STATE);
+				entry   = true;
+				current = target;
+				exit    = true;
 				return;
 
 			case TX_TIMEOUT:
 			case TX_FAILED:
 				// Transition failed, revert and abandon
 				target = current;
-				resetTxState(MSG_RACE_STATE);
 				return;
 
 			default:
-				// Still TX_SENT or waiting for ACK
+				// TX_NONE, TX_SENT, TX_NACKED -- still waiting
 				return;
 		}
 	}

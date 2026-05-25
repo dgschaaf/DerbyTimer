@@ -41,12 +41,8 @@ struct PendingTx {
 	bool winner = false;
 
 	bool anyPending() const { return winner; }
-	void queue(serialMsgID id) {
-		if (id == MSG_WINNER) winner = true;
-		else return;
-		resetTxState(id);
-	}
-	void serviceNext();
+	void queue(serialMsgID id);
+	void checkOutcomes();
 };
 
 static bool needReact			= false;
@@ -249,7 +245,8 @@ void finishControllerLoop() {
 			break;
 	}
 
-	pending.serviceNext();
+	txService();
+	pending.checkOutcomes();
 }
 
 /* =========================================================================
@@ -361,17 +358,21 @@ static void displayReactionTimes() {
 /* =========================================================================
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
-void PendingTx::serviceNext() {
-	if (winner) {
+void PendingTx::queue(serialMsgID id) {
+	if (id == MSG_WINNER) {
 		uint8_t winnerMask = 0;
 		if (heatResult.left.winner)  winnerMask |= winner_leftWin;
 		if (heatResult.right.winner) winnerMask |= winner_rightWin;
 		if (!heatResult.left.winner && !heatResult.right.winner) winnerMask |= winner_tie;
+		if (txWinner(winnerMask)) winner = true;
+	}
+}
 
-		txStatus s = txWinner(winnerMask);
+void PendingTx::checkOutcomes() {
+	if (winner) {
+		txStatus s = txStatusOf(MSG_WINNER);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			winner = false;
-			resetTxState(MSG_WINNER);
 			// non-critical: finish times still display even if winner TX fails
 		}
 	}

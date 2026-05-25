@@ -50,31 +50,27 @@ struct modeMachine {
 			default:            pattern = LIGHT_GO; break;
 		}
 
-		// 4. Attempt coordinated change
-		txStatus result	= txRaceMode((uint8_t)target);
-		switch (result) {
-			
+		// 4. Enqueue coordinated change (no-op if already in flight)
+		txRaceMode((uint8_t)target);
+
+		// 5. Check current TX status
+		switch (txStatusOf(MSG_RACE_MODE)) {
+
 			case TX_ACKED:
-				// Transition has been confirmed, now commit
-				current		= target;   						// commit new mode
-				rx.Mode		= (uint8_t)current;					// update Serial target to match
-				startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);	// blink new mode pattern 3x
-				resetTxState(MSG_RACE_MODE);
+				current = target;
+				rx.Mode = (uint8_t)current;
+				startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);
 				return;
 
 			case TX_TIMEOUT:
 			case TX_FAILED:
-				// Transition failed, revert intention and abandon transition
-				target	= current;
-				resetTxState(MSG_RACE_MODE);
+				target = current;
 				return;
 
 			default:
-				// Still TX_SENT or waiting for ACK
+				// TX_NONE, TX_SENT, TX_NACKED -- still waiting
 				return;
 		}
-
-        return;  // Already in target mode
 	}
 	
 	void rxTransition(raceMode serialTgt) {
@@ -136,18 +132,8 @@ struct PendingTx {
 	bool anyPending() const {
 		return raceStart || foulStatus || leftReact || rightReact || dispAdv;
 	}
-	void queue(serialMsgID id) {
-		switch(id) {
-			case MSG_RACE_START:   raceStart  = true; break;
-			case MSG_FOUL:         foulStatus = true; break;
-			case MSG_LEFT_REACT:   leftReact  = true; break;
-			case MSG_RIGHT_REACT:  rightReact = true; break;
-			case MSG_DISP_ADVANCE: dispAdv    = true; break;
-			default: return;
-		}
-		resetTxState(id);
-	}
-	void serviceNext();	// out-of-line definition in helpers section below
+	void queue(serialMsgID id);       // enqueues the message and sets the flag
+	void checkOutcomes();             // polls txStatusOf() and clears flags on terminal status
 };
 
 // State & mode machine instances
@@ -380,7 +366,8 @@ void startControllerLoop(){
 			break;
 	}
 
-	pending.serviceNext();
+	txService();
+	pending.checkOutcomes();
 }
 
 /* =========================================================================
@@ -509,54 +496,64 @@ static void handleDisplayAdvance(){
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
 
-void PendingTx::serviceNext() {
+void PendingTx::queue(serialMsgID id) {
+	switch(id) {
+		case MSG_RACE_START:
+			if (txRaceStart(0b0001))                                    raceStart  = true;
+			break;
+		case MSG_FOUL:
+			if (txFoulStatus(foulMask))                                 foulStatus = true;
+			break;
+		case MSG_LEFT_REACT:
+			if (txReactionTime(raceTime.reactionTimeUs(LANE_LEFT),  LANE_LEFT))  leftReact  = true;
+			break;
+		case MSG_RIGHT_REACT:
+			if (txReactionTime(raceTime.reactionTimeUs(LANE_RIGHT), LANE_RIGHT)) rightReact = true;
+			break;
+		case MSG_DISP_ADVANCE:
+			if (txDisplayAdvance())                                     dispAdv    = true;
+			break;
+		default:
+			break;
+	}
+}
+
+void PendingTx::checkOutcomes() {
 	if (raceStart) {
-		txStatus s = txRaceStart(0b0001);
+		txStatus s = txStatusOf(MSG_RACE_START);
 		if (s == TX_ACKED) {
 			raceStart = false;
-			resetTxState(MSG_RACE_START);
 		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
-			raceStart = false;
-			resetTxState(MSG_RACE_START);
+			raceStart        = false;
 			pendingErrorCode = err_START_TX_TIMEOUT;
-			criticalTxError = true;		// raceStart failure: FC sensors may not be armed
+			criticalTxError  = true;   // FC sensors may not be armed
 		}
-		return;
 	}
 	if (foulStatus) {
-		txStatus s = txFoulStatus(foulMask);
+		txStatus s = txStatusOf(MSG_FOUL);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }	// FC will compute wrong winner
+			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			foulStatus = false;
-			resetTxState(MSG_FOUL);
 		}
-		return;
 	}
 	if (leftReact) {
-		txStatus s = txReactionTime(raceTime.reactionTimeUs(LANE_LEFT), LANE_LEFT);
+		txStatus s = txStatusOf(MSG_LEFT_REACT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }	// FC will compute wrong car time
+			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			leftReact = false;
-			resetTxState(MSG_LEFT_REACT);
 		}
-		return;
 	}
 	if (rightReact) {
-		txStatus s = txReactionTime(raceTime.reactionTimeUs(LANE_RIGHT), LANE_RIGHT);
+		txStatus s = txStatusOf(MSG_RIGHT_REACT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			rightReact = false;
-			resetTxState(MSG_RIGHT_REACT);
 		}
-		return;
 	}
 	if (dispAdv) {
-		txStatus s = txDisplayAdvance();
+		txStatus s = txStatusOf(MSG_DISP_ADVANCE);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			dispAdv = false;
-			resetTxState(MSG_DISP_ADVANCE);
-			// non-critical: operator can press again
 		}
-		return;
 	}
 }

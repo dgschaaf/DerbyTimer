@@ -1,7 +1,7 @@
 #ifndef serialComm_H
 #define serialComm_H
 
-#include "raceTypes.h"
+#include "raceTypes.h"   // Lane used in txReactionTime signature
 
 // -------------------- Wire Protocol Bitmasks --------------------
 // These define how flags are packed into message payloads.
@@ -40,11 +40,11 @@ enum serialMsgID : uint8_t {
 // -------------------- TX Status --------------------
 enum txStatus : uint8_t {
 	TX_NONE,			// message not yet sent
-	TX_SENT,			// message sent
+	TX_SENT,			// message sent, awaiting ACK
 	TX_ACKED,			// message acknowledged
-	TX_TIMEOUT,			// message ACK not received
-	TX_NACKED,			// message improperly received
-	TX_FAILED,			// message has permanently failed and cannot be sent
+	TX_TIMEOUT,			// ACK not received within txTimeout
+	TX_NACKED,			// message improperly received — triggers retry
+	TX_FAILED,			// permanently failed (too many NACKs)
 
 	TX_STATUS_COUNT		// keep as last to count the number of statuses
 };
@@ -69,8 +69,8 @@ struct SerialRxState {
 	serialMsgID ID              = MSG_NULL;  // last received message ID
 	serialMsgID lastAckedMsgID  = MSG_NULL;  // last acknowledged message ID
 	serialMsgID lastNackedMsgID = MSG_NULL;  // last not acknowledged message ID
-	uint8_t     Mode            = 0;         // last received race mode (MODE_GATEDROP — cast to raceMode)
-	uint8_t     State           = 0;         // last received race state (RACE_IDLE — cast to raceState)
+	uint8_t     Mode            = 0;         // last received race mode (MODE_GATEDROP -- cast to raceMode)
+	uint8_t     State           = 0;         // last received race state (RACE_IDLE -- cast to raceState)
 	errCode     lastErrorCode   = err_NULL;  // last received error code
 
 	bool    RaceStart           = false;
@@ -93,24 +93,32 @@ extern SerialRxState rx;
 void setupSerial();
 bool rxSerial();
 
-txStatus txRaceMode(uint8_t newMode);      // pass (uint8_t)currentMode
-txStatus txRaceState(uint8_t newState);    // pass (uint8_t)newState
-txStatus txRaceStart(uint8_t start);
-txStatus txReactionTime(uint32_t reactionTime, Lane lane);
-txStatus txFoulStatus(uint8_t foul);
-txStatus txWinner(uint8_t winner);
-txStatus txDisplayAdvance();
-txStatus txError(errCode err);
+// Enqueue outgoing messages -- returns true if newly enqueued, false if already in flight or queued.
+// Callers enqueue once and move on; query outcome with txStatusOf().
+bool txRaceMode(uint8_t newMode);
+bool txRaceState(uint8_t newState);
+bool txRaceStart(uint8_t start);                         // priority -- jumps to front of queue
+bool txReactionTime(uint32_t reactionTime, Lane lane);
+bool txFoulStatus(uint8_t foul);
+bool txWinner(uint8_t winner);
+bool txDisplayAdvance();
+bool txError(errCode err);
 
+// Query the current status of any outgoing message slot.
+txStatus txStatusOf(serialMsgID id);
+
+// Drive the TX queue -- call once per main loop.
+void txService();
+
+// Immediate responses -- fire and forget, not queued.
 void txAck(uint8_t ackID);
 void txNack(uint8_t nackID);
 
 // -------------------- Helpers --------------------
 void    sendMessage(serialMsgID id, const uint8_t* data, uint8_t dataLen);
 uint8_t getExpectedPayloadLength(serialMsgID id);
-void    resetTxState(serialMsgID id);
 
 // TX timing
-constexpr uint16_t txTimeout = 50;  // milliseconds to wait for tx timeout
+constexpr uint16_t txTimeout = 50;  // milliseconds to wait for ACK before TX_TIMEOUT
 
 #endif  // serialComm_H
