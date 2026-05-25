@@ -86,6 +86,22 @@ struct SerialRxState {
 	bool    RightReactionValid  = false;
 	int32_t LeftReactionTime    = 0;
 	int32_t RightReactionTime   = 0;
+
+	void clearHeatEvents() {
+		RaceStart          = false;
+		LeftStart          = false;
+		RightStart         = false;
+		LeftFoul           = false;
+		RightFoul          = false;
+		LeftWin            = false;
+		RightWin           = false;
+		Tie                = false;
+		DisplayAdvanceFlag = false;
+		LeftReactionValid  = false;
+		RightReactionValid = false;
+		LeftReactionTime   = 0;
+		RightReactionTime  = 0;
+	}
 };
 extern SerialRxState rx;
 

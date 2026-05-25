@@ -120,6 +120,7 @@ void finishControllerLoop() {
 		case RACE_IDLE:
 			if(stm.entry){
 				stm.entry 			= false;
+				rx.clearHeatEvents();
 				clearDisplay(LANE_LEFT);
 				clearDisplay(LANE_RIGHT);
 			}
@@ -149,7 +150,6 @@ void finishControllerLoop() {
 		case RACE_COUNTDOWN:
 			if(stm.entry){
 				stm.entry 			= false;
-				rx.RaceStart		= false;
 				heat.startUs		= 0;
 			}
 
@@ -170,12 +170,6 @@ void finishControllerLoop() {
 				heat.rightRecorded		= false;
 				heat.leftTimeUs			= 0;
 				heat.rightTimeUs		= 0;
-				rx.LeftReactionValid	= false;
-				rx.RightReactionValid	= false;
-				rx.LeftReactionTime		= 0;
-				rx.RightReactionTime	= 0;
-				rx.LeftFoul				= false;
-				rx.RightFoul			= false;
 				stm.entry 				= false;
 				// Only arm if not already armed from COUNTDOWN state
 				if (heat.startUs == 0) {
@@ -201,7 +195,6 @@ void finishControllerLoop() {
 		case RACE_COMPLETE:
 			if(stm.entry){
 				needReact				= (currentMode == MODE_REACTION || currentMode == MODE_PRO);
-				rx.DisplayAdvanceFlag	= false;
 				heatResult = computeHeatResults(
 					heat.leftTimeUs,              heat.rightTimeUs,
 					heatResult.left.foul,         heatResult.right.foul,

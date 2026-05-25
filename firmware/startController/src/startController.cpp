@@ -217,6 +217,7 @@ void startControllerLoop(){
 				stm.entry		= false;
 				cd.state 		= CD_IDLE;
 				raceTime.reset();
+				rx.clearHeatEvents();
 				updateLights(LIGHT_OFF);
 				dropGate(LANE_LEFT);
 				dropGate(LANE_RIGHT);
@@ -325,9 +326,6 @@ void startControllerLoop(){
 		case RACE_COMPLETE:
 			if(stm.entry){
 				stm.entry				= false;
-				rx.LeftWin				= false;
-				rx.RightWin				= false;
-				rx.Tie					= false;
 				winLightsPend			= true;
 				blinkState.active 		= false;  						// Clear any pending blinks
 			}
