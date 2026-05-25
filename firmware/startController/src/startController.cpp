@@ -107,16 +107,23 @@ struct modeMachine {
 };
 
 struct raceTimingData {
-    uint32_t raceStartUs;
-    uint32_t leftStartUs;
-    uint32_t rightStartUs;
-};
+	uint32_t raceStartUs;
+	uint32_t laneStartUs[2];   // indexed by Lane; 0 = not triggered
 
-struct raceResultsData {
-	uint32_t leftReactUs;
-	uint32_t rightReactUs;
-	bool leftFoul;
-	bool rightFoul;
+	void reset() {
+		raceStartUs    = 0;
+		laneStartUs[0] = 0;
+		laneStartUs[1] = 0;
+	}
+	bool isFoul(Lane lane) const {
+		if (laneStartUs[lane] == 0) return false;
+		if (raceStartUs == 0)       return true;   // triggered before GO
+		return (int32_t)(laneStartUs[lane] - raceStartUs) < 0;
+	}
+	uint32_t reactionTimeUs(Lane lane) const {
+		if (isFoul(lane)) return raceStartUs - laneStartUs[lane];
+		return laneStartUs[lane] - raceStartUs;
+	}
 };
 
 struct PendingTx {
@@ -148,8 +155,7 @@ static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
 static modeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
 
 // timing
-static raceTimingData raceTime			= {0, 0, 0};
-static raceResultsData raceResults		= {0, 0, false, false};
+static raceTimingData raceTime			= {0, {0, 0}};
 uint32_t tNow							= 0;			// current time in microseconds	
 
 // countdown 
@@ -177,12 +183,10 @@ static bool startReleased				= true;
 static bool modeReleased				= true;
 
 // Internal helpers (file-local)
-static unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime);
 countdownState tickCountdownState(raceMode mode, countdownState cdState);
 static void handleModeChanges();
 static void handleEarlyStarts(unsigned long tn, raceMode mode);
 static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn);
-uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart);
 static void handleTrackTriggers();
 static void handleDisplayAdvance();
 
@@ -226,6 +230,7 @@ void startControllerLoop(){
 			if(stm.entry){
 				stm.entry		= false;
 				cd.state 		= CD_IDLE;
+				raceTime.reset();
 				updateLights(LIGHT_OFF);
 				dropGate(LANE_LEFT);
 				dropGate(LANE_RIGHT);
@@ -295,7 +300,7 @@ void startControllerLoop(){
 				handleCountdownGoActions(cd.state, cd.prev, tNow);	// When GO is reached, start race and transition state.
 			}
 			if(cd.state != cd.prev){
-				byte cdLights	= buildLightConfig(cd.state, raceResults.leftFoul, raceResults.rightFoul, mdm.current);	// set new light pattern
+				byte cdLights	= buildLightConfig(cd.state, raceTime.isFoul(LANE_LEFT), raceTime.isFoul(LANE_RIGHT), mdm.current);	// set new light pattern
 				updateLights(cdLights);									// update lights only when new cd.state
 				cd.prev = cd.state;
 			}
@@ -309,26 +314,17 @@ void startControllerLoop(){
 			
 		case RACE_RACING:
 			if(stm.entry){
-				stm.entry						= false;
-				raceResults.rightReactUs		= 0;
-				raceResults.leftReactUs			= 0;
-				foulMask						= 0;
-				if (raceResults.leftFoul)  foulMask |= foul_left;
-				if (raceResults.rightFoul) foulMask |= foul_right;
+				stm.entry  = false;
+				foulMask   = 0;
+				if (raceTime.isFoul(LANE_LEFT))  foulMask |= foul_left;
+				if (raceTime.isFoul(LANE_RIGHT)) foulMask |= foul_right;
 				pending.queue(MSG_FOUL);		// always send foul status on entry to RACING
 			}
 
-			tNow 							= micros();
+			tNow = micros();
 
 			if (mdm.current != MODE_GATEDROP){
 				handleTrackTriggers();
-
-				if (!isLaneUp(LANE_LEFT) && raceResults.leftReactUs == 0){
-					raceResults.leftReactUs	= calcReactionTimes(raceResults.leftFoul, raceTime.raceStartUs, raceTime.leftStartUs);
-				}
-				if (!isLaneUp(LANE_RIGHT) && raceResults.rightReactUs == 0){
-					raceResults.rightReactUs	= calcReactionTimes(raceResults.rightFoul, raceTime.raceStartUs, raceTime.rightStartUs);
-				}
 			}
 
 			if (!pending.anyPending()) {
@@ -414,17 +410,13 @@ void startControllerLoop(){
  *                        RACE_COUNTDOWN HELPER FUNCTIONS
  * ========================================================================= */
 static void handleEarlyStarts(unsigned long tn, raceMode mode){
-	// Helper function to monitor for early starts during countdown
-	// Watch for the triggers (given right mode).  Drop the gate but store a foul.
 	if (mode != MODE_GATEDROP){
 		if (isLeftPressed() && isLaneUp(LANE_LEFT)){
-			raceTime.leftStartUs	= tn;
-			raceResults.leftFoul	= true;
+			raceTime.laneStartUs[LANE_LEFT]  = tn;
 			dropGate(LANE_LEFT);
 		}
 		if (isRightPressed() && isLaneUp(LANE_RIGHT)){
-			raceTime.rightStartUs	= tn;
-			raceResults.rightFoul	= true;
+			raceTime.laneStartUs[LANE_RIGHT] = tn;
 			dropGate(LANE_RIGHT);
 		}
 	}
@@ -433,13 +425,11 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode){
 static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn){
 	// On first CD_GO loop: record race start time, arm pending TX, drop gates if gate-drop mode.
 	if (cdNow != cdPrev){
-		stm.target				= RACE_RACING;
-		raceTime.raceStartUs	= tn;
+		stm.target           = RACE_RACING;
+		raceTime.raceStartUs = tn;
 		pending.queue(MSG_RACE_START);
 
 		if (mdm.current == MODE_GATEDROP){
-			raceTime.leftStartUs	= tn;
-			raceTime.rightStartUs	= tn;
 			dropGate(LANE_LEFT);
 			dropGate(LANE_RIGHT);
 		}
@@ -489,33 +479,14 @@ countdownState tickCountdownState(raceMode mode, countdownState cdState){
  *                        RACE_RACING HELPER FUNCTIONS
  * ========================================================================= */
 
-unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
-	// Helper function to calculate elapsed microseconds with overflow protection
-	// Possible this is unnecessary since unsigned long subtraction wraps automatically
-    if (endTime >= startTime) {
-        return endTime - startTime;  					// Normal case
-    } else {
-        return (0xFFFFFFFF - startTime) + endTime + 1;	// Overflow case
-    }
-}
-
-uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart){
-	// calculate reaction times, gate drop stays at zero
-	if (foul){
-		return elapsedMicros(raceStart, carStart);		// race time is bigger since they started early
-	} else {
-		return elapsedMicros(carStart, raceStart);		// normally car time is bigger because it started after race
-	}
-}
-
 static void handleTrackTriggers(){
 	if (isLeftPressed() && isLaneUp(LANE_LEFT)){
-		raceTime.leftStartUs	= tNow;
+		raceTime.laneStartUs[LANE_LEFT]  = tNow;
 		dropGate(LANE_LEFT);
 		pending.queue(MSG_LEFT_REACT);
 	}
 	if (isRightPressed() && isLaneUp(LANE_RIGHT)){
-		raceTime.rightStartUs	= tNow;
+		raceTime.laneStartUs[LANE_RIGHT] = tNow;
 		dropGate(LANE_RIGHT);
 		pending.queue(MSG_RIGHT_REACT);
 	}
@@ -562,7 +533,7 @@ void PendingTx::serviceNext() {
 		return;
 	}
 	if (leftReact) {
-		txStatus s = txReactionTime(raceResults.leftReactUs, LANE_LEFT);
+		txStatus s = txReactionTime(raceTime.reactionTimeUs(LANE_LEFT), LANE_LEFT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }	// FC will compute wrong car time
 			leftReact = false;
@@ -571,7 +542,7 @@ void PendingTx::serviceNext() {
 		return;
 	}
 	if (rightReact) {
-		txStatus s = txReactionTime(raceResults.rightReactUs, LANE_RIGHT);
+		txStatus s = txReactionTime(raceTime.reactionTimeUs(LANE_RIGHT), LANE_RIGHT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			rightReact = false;
