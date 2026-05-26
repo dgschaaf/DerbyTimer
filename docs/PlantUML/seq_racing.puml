@@ -94,11 +94,11 @@ end
 ' Timeout guard — auto-complete lane if >10 seconds
 ' ============================================================
 alt [elapsed > maxRaceTimeUs (10 s) and left not recorded]
-  FC -> FC : leftTimeUs = maxRaceTimeUs, leftRecorded = true
+  FC -> FC : leftTimeUs = maxRaceTimeUs, leftDnf = true, leftRecorded = true
 end
 
 alt [elapsed > maxRaceTimeUs (10 s) and right not recorded]
-  FC -> FC : rightTimeUs = maxRaceTimeUs, rightRecorded = true
+  FC -> FC : rightTimeUs = maxRaceTimeUs, rightDnf = true, rightRecorded = true
 end
 
 ' ============================================================

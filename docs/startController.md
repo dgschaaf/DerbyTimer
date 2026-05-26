@@ -86,7 +86,7 @@ Each hardware subsystem has its own module with clear interfaces, enabling indep
 Uses a `SerialRxState rx` struct (extern from serialComm) for inter-module state visibility, appropriate for embedded systems. Local state and timing data are kept in file-local structs inside each controller source file.
 
 #### 3. Hybrid Programming Style
-Combines procedural functions with data structs (`stateMachine`, `modeMachine`, `CountDownCtx`), avoiding over-engineering while maintaining structure.
+Combines procedural functions with data structs (`stateMachine`, `modeSelect`, `CountDownCtx`), avoiding over-engineering while maintaining structure.
 
 #### 4. Timing Precision
 * Microsecond precision (`micros()`) for reaction time measurement and gate-trigger timestamps
@@ -160,13 +160,13 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 1. Extend `raceMode` enum in `raceTypes.h`
 2. If the mode should be reachable via the mode button, add it to `nextMode()` in `modeMachine` (startController.cpp). Modes only reachable via BLE (like Dial-In) are intentionally omitted from `nextMode()` but still need the `DIALIIN → GATEDROP` exit case so the operator can leave the mode via button.
 3. Define light pattern in both `selfTransition()` and `rxTransition()` of `modeMachine`
-4. Add countdown delay case in `tickCountdownState()` if different from 500 ms
+4. Add countdown delay case in `CountDownCtx::tick()` if different from 500 ms
 
 #### Debugging
 * Serial output at 115,200 baud
 * LED patterns indicate mode and state
 * `"future:"` comments in source mark planned features
-* State visibility through `stm.current` and `mdm.current` locals
+* State visibility through `stm.current` and `md.current` locals
 
 #### Testing Recommendations
 1. Light test pattern on startup

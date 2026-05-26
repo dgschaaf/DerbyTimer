@@ -99,8 +99,9 @@ state "Racing" as Racing {
 
 note right of Racing
   handleSensors(): polls ISR volatile flags.
-  Records elapsed time (micros() - raceStartUs)
-  or maxRaceTimeUs (10 s) if lane times out.
+  Records elapsed time (micros() - raceStartUs).
+  If lane times out (>10 s): stores maxRaceTimeUs
+  as placeholder and sets leftDnf / rightDnf = true.
   handleRxReaction(): reads rx.LeftReactionTime /
   rx.RightReactionTime (uint32_t) guarded by
   LeftReactionValid / RightReactionValid bool flags;
@@ -126,9 +127,9 @@ note right of RaceComplete
   carTimeUs = raceTimeUs + (foul ? +1 : -1) * reactionTimeUs
   A foul (false start) adds reaction time as a penalty.
   A clean start subtracts reaction time as a reward.
-  Winner: fastest carTimeUs with no foul.
-  Both foul -> neither wins (tie, winnerMask bit2).
-  MSG_WINNER bitmask: bit0=left, bit1=right, bit2=tie.
+  Winner: fastest carTimeUs; lane must not be foul or DNF.
+  Both lanes invalid (foul/DNF) -> winnerMask bit3 (no result).
+  MSG_WINNER bitmask: bit0=left, bit1=right, bit2=tie, bit3=no result.
 end note
 
 ' ============================================================

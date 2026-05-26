@@ -195,6 +195,7 @@ class globals <<module>> {
   {field} #define winner_tie
   {field} #define winner_leftWin
   {field} #define winner_rightWin
+  {field} #define winner_noResult
   {field} #define start_race
   {field} #define start_left
   {field} #define start_right

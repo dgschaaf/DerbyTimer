@@ -31,7 +31,7 @@ Race state transitions are driven externally via messages from the start control
 
 **RACE_RACING** – On entry, recording flags and times are reset. Sensors are armed if not already armed from COUNTDOWN. Each loop iteration:
 
-1. *handleSensors*() polls *isLeftFinished*() / *isRightFinished*() and records finish times. If *maxRaceTimeUs* elapses before a sensor triggers, the max time is recorded for that lane.
+1. *handleSensors*() polls *isLeftFinished*() / *isRightFinished*() and records finish times. If *maxRaceTimeUs* elapses before a sensor triggers, the lane is flagged as DNF (`timingInputs.leftDnf`/`rightDnf` set true) and `maxRaceTimeUs` is stored as a placeholder time.
 2. *handleRxReaction*() reads `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul` from the *SerialRxState* struct (updated by *rxSerial*()) and stores them in `heatResult` (`HeatResults`). Reaction times are stored as `uint32_t`; companion flags `rx.LeftReactionValid` / `rx.RightReactionValid` indicate whether a value has been received this race (both cleared to `false` at IDLE entry via `rx.clearHeatEvents()`).
 3. Once both lanes are recorded, *stm.target* is set to *RACE_COMPLETE* and the state machine transitions.
 
@@ -40,9 +40,10 @@ Race state transitions are driven externally via messages from the start control
 1. *computeHeatResults*(`heatResult`, `timingInputs`) completes the `HeatResults` struct in-place. `heatResult.left.foul` and `heatResult.left.reactionTimeUs` (and right) are already populated from RACING via *handleRxReaction*(). The function adds the remaining derived fields:
    * `raceTimeUs` — copied from `timingInputs` (ISR-captured elapsed time)
    * `carTimeUs = raceTimeUs + (foul ? +1 : -1) * reactionTimeUs` — a foul adds reaction time; a clean start subtracts it
-   * `winner` — false if the lane fouled; otherwise true if the opponent fouled or this lane's `carTimeUs` is lower
-2. *displayCarTimes*() calls `updateDisplay(carTimeUs, lane)` for each lane. Foul lanes are blanked. If the mode is not *MODE_GATEDROP*, *needReact* is set so reaction times are shown on the next display advance.
-3. `pending.queue(MSG_WINNER)` enqueues *MSG_WINNER* with a bitmask (`bit 0 = left, bit 1 = right, bit 2 = tie`).
+   * `dnf` — true if the lane timed out (car did not reach the sensor); `carTimeUs` is meaningless for DNF lanes
+   * `winner` — false if the lane fouled or DNF'd; otherwise true if the opponent is invalid or this lane's `carTimeUs` is lower
+2. *displayCarTimes*() calls `updateDisplay(carTimeUs, lane)` for each lane. Foul and DNF lanes are blanked. `needReact` is set only when at least one lane is valid (non-foul, non-DNF) and the mode requires reaction display.
+3. `pending.queue(MSG_WINNER)` enqueues *MSG_WINNER* with a bitmask (`bit 0 = left wins, bit 1 = right wins, bit 2 = tie, bit 3 = no result`). Bit 3 fires when both lanes are invalid (double-foul, double-DNF, or one of each); bit 2 fires only for a genuine simultaneous finish.
 
 On subsequent *MSG_DISP_ADVANCE* events (triggered by the operator pressing Start on the start controller):
 
@@ -106,7 +107,7 @@ The firmware drives two 5‑digit seven‑segment displays via direct GPIO. `upd
 The finish controller communicates with the start controller over a serial connection handled by *serialComm*. The protocol defines **12 message types** (MSG_NULL through MSG_DISP_ADVANCE). Key elements:
 
 * **`rxSerial()`** – Called on every loop iteration. Parses incoming messages and updates the global `SerialRxState rx` struct. Fields used by the finish controller include `rx.State`, `rx.Mode`, `rx.RaceStart`, `rx.LeftFoul`, `rx.RightFoul`, `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftReactionValid`, `rx.RightReactionValid`, and `rx.DisplayAdvanceFlag`.
-* **`txWinner(uint8_t winnerMask)`** – Sends MSG_WINNER to the start controller. Bit 0 = left wins, bit 1 = right wins, bit 2 = tie.
+* **`txWinner(uint8_t winnerMask)`** – Sends MSG_WINNER to the start controller. Bit 0 = left wins, bit 1 = right wins, bit 2 = tie (genuine simultaneous finish), bit 3 = no result (double-foul, double-DNF, or one of each).
 * **`txRaceState(raceState newState)`** – Requests a coordinated state change. Used by the finish controller to initiate the return to RACE_IDLE from RACE_COMPLETE. Transitions are committed only when the start controller sends an ACK; TX_TIMEOUT or TX_FAILED causes the attempt to be abandoned.
 * **`txService()`** – Drives the TX FIFO queue; must be called once per main loop. Callers enqueue with `tx*()` functions and poll outcome with `txStatusOf(serialMsgID)`.
 
@@ -116,7 +117,7 @@ All TX functions use a single-in-flight FIFO queue with 3 retries and a 50 ms pe
 
 ### Communication with Race Manager (BLE)
 
-The Nano 33 BLE includes a Nordic BLE radio. The BLE protocol and characteristic layout are not yet defined. When implemented, race results (*carTimeUs*, *raceTimeUs*, *reactionTimeUs*, *foul*, *winner*) should be transmitted once the race completes. Placeholder comments in *finishController.cpp* (e.g. `// notifyBLEMode(currentMode)`) mark integration points.
+The Nano 33 BLE includes a Nordic BLE radio. The BLE protocol and characteristic layout are not yet defined. When implemented, race results (*carTimeUs*, *raceTimeUs*, *reactionTimeUs*, *foul*, *dnf*, *winner*) should be transmitted once the race completes. Placeholder comments in *finishController.cpp* (e.g. `// notifyBLEMode(currentMode)`) mark integration points.
 
 ---
 

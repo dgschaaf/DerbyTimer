@@ -49,7 +49,7 @@ end note
 ' Finish controller computes result and sends MSG_WINNER to SC
 ' ============================================================
 FC -> FC : computeRaceTimes()
-FC -> SC : MSG_WINNER (winnerMask: bit0=L, bit1=R, bit2=tie)
+FC -> SC : MSG_WINNER (winnerMask: bit0=L, bit1=R, bit2=tie, bit3=no result)
 SC --> FC : MSG_ACK
 
 ' ============================================================
