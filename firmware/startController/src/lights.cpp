@@ -81,6 +81,9 @@ void lightTestPattern() {
 }
 
 
+void cancelBlink() { blinkState.active = false; }
+bool isBlinking()  { return blinkState.active; }
+
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern) {
     blinkState.pattern1 = pattern1;
     blinkState.pattern2 = pattern2;

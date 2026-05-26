@@ -235,7 +235,7 @@ void startControllerLoop(){
 			updateBlink();
 			handleModeChanges();
 			
-			if (!blinkState.active){
+			if (!isBlinking()){
 				if (isStartPressed())	stm.target = RACE_STAGING;		// Start moves to STAGING
 			}
 
@@ -251,15 +251,15 @@ void startControllerLoop(){
 			if(stm.entry){
 				stm.entry			= false;
 				returnGates(); 											// reset the gate status to park the cars
+				cancelBlink();												// stop any pending blink before setting steady state
 				updateLights(LIGHT_BL | LIGHT_BR); 						// set the lights to blue
-				blinkState.active 	= false;  							// Clear any pending blinks
 			}
 
 			updateBlink();
 
 			updateGates();
 
-			if (!blinkState.active){
+			if (!isBlinking()){
 				if (isStartPressed() && areLanesReady())	stm.target = RACE_COUNTDOWN;	// Start moves to COUNTDOWN
 				if (isModePressed())	stm.target = RACE_IDLE;			// Mode returns to IDLE
 			}
@@ -327,7 +327,7 @@ void startControllerLoop(){
 			if(stm.entry){
 				stm.entry				= false;
 				winLightsPend			= true;
-				blinkState.active 		= false;  						// Clear any pending blinks
+				cancelBlink();
 			}
 
 			handleDisplayAdvance();
@@ -372,19 +372,18 @@ void startControllerLoop(){
  *                        RACE_IDLE HELPER FUNCTIONS
  * ========================================================================= */
  static void handleModeChanges(){
- 	// Handle mode changes via button press or rxSerial
-	if (!blinkState.active){
-		if (rx.Mode != mdm.current){
-			mdm.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
-		} else {
-			if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
-			if (isModePressed() && modeReleased){
-				modeReleased			= false;					// don't revisit until released
-				mdm.nextMode();										// Select mode to advance to per transition order
-			}
+ 	// Handle mode changes via button press or rxSerial.
+	// Mode changes preempt any in-progress blink — startBlink() in selfTransition/rxTransition overwrites.
+	if (rx.Mode != mdm.current){
+		mdm.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
+	} else {
+		if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
+		if (isModePressed() && modeReleased){
+			modeReleased			= false;					// don't revisit until released
+			mdm.nextMode();										// Select mode to advance to per transition order
 		}
-		if (mdm.target != mdm.current) mdm.selfTransition(mdm.target);
 	}
+	if (mdm.target != mdm.current) mdm.selfTransition(mdm.target);
 }
 
  /* =========================================================================

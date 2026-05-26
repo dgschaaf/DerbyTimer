@@ -35,9 +35,6 @@ struct BlinkState {
 #define LIGHT_FL   (1 << 6) // Q6: Red L
 #define LIGHT_FR   (1 << 7) // Q7: Red R
 
-// Global blink state instance (defined in lights.cpp)
-extern BlinkState blinkState;
-
 // Setup/teardown
 void setupLights();
 
@@ -46,6 +43,8 @@ void updateLights(byte config);
 byte buildLightConfig(countdownState state, bool FL, bool FR, raceMode mode);
 void lightTestPattern();
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern);
+void cancelBlink();
+bool isBlinking();
 bool updateBlink();
 
 #endif  // LIGHTS_H
