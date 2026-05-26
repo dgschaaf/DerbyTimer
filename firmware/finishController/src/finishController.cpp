@@ -41,16 +41,18 @@ struct TimingInputs {
 };
 
 struct PendingTx {
-	bool winner = false;
+	bool    winner         = false;
+	uint8_t winnerAttempts = 0;
 	bool anyPending() const { return winner; }
 	void queue(serialMsgID id);
 	void checkOutcomes();
 };
 
-static bool needReact			= false;
+static bool needReact              = false;
 static PendingTx pending;
-static uint8_t winnerMask		= 0;
-static bool criticalTxError		= false;		// reserved for future critical messages
+static uint8_t winnerMask          = 0;
+static bool criticalTxError        = false;
+static unsigned long countdownEntryMs = 0;   // P1-11: SC-silent timeout anchor
 
 static HeatResults    heatResult	= {};
 static TimingInputs timingInputs	= {};
@@ -125,8 +127,8 @@ void finishControllerLoop() {
 				clearDisplay(LANE_RIGHT);
 			}
 
-			if (rx.Mode != currentMode){
-				currentMode 		= (raceMode)rx.Mode;
+			if (rx.Mode != (uint8_t)currentMode && rx.Mode < MODE_COUNT) {
+				currentMode = (raceMode)rx.Mode;
 				// future: notify mode change over BLE
 			}
 			stm.rxTransition((raceState)rx.State);
@@ -149,12 +151,19 @@ void finishControllerLoop() {
 
 		case RACE_COUNTDOWN:
 			if(stm.entry){
-				stm.entry 			= false;
-				timingInputs.startUs		= 0;
+				stm.entry            = false;
+				timingInputs.startUs = 0;
+				countdownEntryMs     = millis();
+			}
+
+			// If SC goes completely silent, give up after maxRaceTimeUs and require restart.
+			if ((millis() - countdownEntryMs) > 10000UL) {
+				criticalTxError = true;
+				break;
 			}
 
 			if (rx.RaceStart && (timingInputs.startUs == 0)) {
-				timingInputs.startUs		= micros();
+				timingInputs.startUs = micros();
 				armSensors(timingInputs.startUs);
 			}
 			stm.rxTransition((raceState)rx.State);
@@ -197,6 +206,18 @@ void finishControllerLoop() {
 		case RACE_COMPLETE:
 			if(stm.entry){
 				computeHeatResults(heatResult, timingInputs);
+
+				// Warn if reaction times were expected but never received (lost serial TX).
+				// Car times will equal race times — incorrect but best-effort; result is still displayed.
+				if (currentMode == MODE_REACTION || currentMode == MODE_PRO) {
+					bool leftNeedsReact  = !heatResult.left.foul  && !heatResult.left.dnf;
+					bool rightNeedsReact = !heatResult.right.foul && !heatResult.right.dnf;
+					if ((leftNeedsReact  && heatResult.left.reactionTimeUs  == 0) ||
+					    (rightNeedsReact && heatResult.right.reactionTimeUs == 0)) {
+						txError(err_STATE_TX_TIMEOUT);
+					}
+				}
+
 				displayCarTimes();
 				bool leftValid  = !heatResult.left.foul  && !heatResult.left.dnf;
 				bool rightValid = !heatResult.right.foul && !heatResult.right.dnf;
@@ -372,9 +393,17 @@ void PendingTx::queue(serialMsgID id) {
 void PendingTx::checkOutcomes() {
 	if (winner) {
 		txStatus s = txStatusOf(MSG_WINNER);
-		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
+		if (s == TX_ACKED) {
 			winner = false;
-			// non-critical: finish times still display even if winner TX fails
+			winnerAttempts = 0;
+		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
+			if (winnerAttempts < 1) {
+				winnerAttempts++;
+				txWinner(winnerMask);   // one re-send attempt; finish times still display if this also fails
+			} else {
+				winner = false;
+				winnerAttempts = 0;
+			}
 		}
 	}
 }
