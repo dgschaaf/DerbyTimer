@@ -16,7 +16,7 @@
 #include "display.h"
 #include "sensors.h"
 
-struct HeatLaneResult {
+struct LaneResult {
 	bool		foul;
 	bool		winner;
 	uint32_t	raceTimeUs;
@@ -25,11 +25,11 @@ struct HeatLaneResult {
 };
 
 struct HeatResults {
-	HeatLaneResult left;
-	HeatLaneResult right;
+	LaneResult left;
+	LaneResult right;
 };
 
-struct HeatTimingData {
+struct TimingInputs {
 	uint32_t startUs;
 	uint32_t leftTimeUs;
 	uint32_t rightTimeUs;
@@ -50,7 +50,7 @@ static PendingTx pending;
 static bool criticalTxError		= false;		// reserved for future critical messages
 
 static HeatResults    heatResult	= {};
-static HeatTimingData heat			= {};
+static TimingInputs timingInputs	= {};
 
 // State machine instance
 static stateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
@@ -59,10 +59,7 @@ static raceMode currentMode;
 // Internal helpers (file-local)
 static void handleSensors();
 static void handleRxReaction();
-static HeatResults computeHeatResults(
-	uint32_t leftRaceTimeUs, uint32_t rightRaceTimeUs,
-	bool leftFoul, bool rightFoul,
-	uint32_t leftReactionUs, uint32_t rightReactionUs);
+static void computeHeatResults(HeatResults& result, const TimingInputs& timing);
 static void displayCarTimes();
 static void displayReactionTimes();
 
@@ -150,12 +147,12 @@ void finishControllerLoop() {
 		case RACE_COUNTDOWN:
 			if(stm.entry){
 				stm.entry 			= false;
-				heat.startUs		= 0;
+				timingInputs.startUs		= 0;
 			}
 
-			if (rx.RaceStart && (heat.startUs == 0)) {
-				heat.startUs		= micros();
-				armSensors(heat.startUs);
+			if (rx.RaceStart && (timingInputs.startUs == 0)) {
+				timingInputs.startUs		= micros();
+				armSensors(timingInputs.startUs);
 			}
 			stm.rxTransition((raceState)rx.State);
 			if(stm.exit){
@@ -166,22 +163,22 @@ void finishControllerLoop() {
 
 		case RACE_RACING:
 			if(stm.entry){
-				heat.leftRecorded		= false;
-				heat.rightRecorded		= false;
-				heat.leftTimeUs			= 0;
-				heat.rightTimeUs		= 0;
+				timingInputs.leftRecorded		= false;
+				timingInputs.rightRecorded		= false;
+				timingInputs.leftTimeUs			= 0;
+				timingInputs.rightTimeUs		= 0;
 				stm.entry 				= false;
 				// Only arm if not already armed from COUNTDOWN state
-				if (heat.startUs == 0) {
-					heat.startUs		= micros();
-					armSensors(heat.startUs);
+				if (timingInputs.startUs == 0) {
+					timingInputs.startUs		= micros();
+					armSensors(timingInputs.startUs);
 				}
 			}
 
 			handleSensors();
 			handleRxReaction();
 
-			if (heat.leftRecorded && heat.rightRecorded) {
+			if (timingInputs.leftRecorded && timingInputs.rightRecorded) {
 				stm.target	= RACE_COMPLETE;
 			}
 			if (stm.target != stm.current) stm.selfTransition(stm.target);
@@ -195,11 +192,7 @@ void finishControllerLoop() {
 		case RACE_COMPLETE:
 			if(stm.entry){
 				needReact				= (currentMode == MODE_REACTION || currentMode == MODE_PRO);
-				heatResult = computeHeatResults(
-					heat.leftTimeUs,              heat.rightTimeUs,
-					heatResult.left.foul,         heatResult.right.foul,
-					heatResult.left.reactionTimeUs, heatResult.right.reactionTimeUs
-				);
+				computeHeatResults(heatResult, timingInputs);
 				displayCarTimes();
 				pending.queue(MSG_WINNER);
 				stm.entry				= false;
@@ -219,7 +212,7 @@ void finishControllerLoop() {
 			if(stm.exit){
 				stm.exit 			= false;
 				heatResult			= {};
-				heat				= {};
+				timingInputs		= {};
 			}
 			break;
 
@@ -259,25 +252,25 @@ void finishControllerLoop() {
  * ========================================================================= */
 void handleSensors() {
 	uint32_t now     = micros();
-	uint32_t elapsed = now - heat.startUs;
+	uint32_t elapsed = now - timingInputs.startUs;
 
-    if (!heat.leftRecorded) {
+    if (!timingInputs.leftRecorded) {
 		if (isLeftFinished()) {
-			heat.leftTimeUs   = getLeftTimeUs();
-			heat.leftRecorded = true;
+			timingInputs.leftTimeUs   = getLeftTimeUs();
+			timingInputs.leftRecorded = true;
 		} else if (elapsed > config.maxRaceTimeUs) {
-			heat.leftTimeUs   = config.maxRaceTimeUs;
-			heat.leftRecorded = true;
+			timingInputs.leftTimeUs   = config.maxRaceTimeUs;
+			timingInputs.leftRecorded = true;
 		}
     }
 
-	if (!heat.rightRecorded) {
+	if (!timingInputs.rightRecorded) {
 		if (isRightFinished()) {
-			heat.rightTimeUs   = getRightTimeUs();
-			heat.rightRecorded = true;
+			timingInputs.rightTimeUs   = getRightTimeUs();
+			timingInputs.rightRecorded = true;
 		} else if (elapsed > config.maxRaceTimeUs) {
-			heat.rightTimeUs   = config.maxRaceTimeUs;
-			heat.rightRecorded = true;
+			timingInputs.rightTimeUs   = config.maxRaceTimeUs;
+			timingInputs.rightRecorded = true;
 		}
     }
 }
@@ -306,30 +299,22 @@ void handleRxReaction() {
 /* =========================================================================
  *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
-static HeatResults computeHeatResults(
-	uint32_t leftRaceTimeUs,  uint32_t rightRaceTimeUs,
-	bool     leftFoul,        bool     rightFoul,
-	uint32_t leftReactionUs,  uint32_t rightReactionUs
-) {
-	HeatResults r = {};
-	r.left.foul            = leftFoul;
-	r.right.foul           = rightFoul;
-	r.left.raceTimeUs      = leftRaceTimeUs;
-	r.right.raceTimeUs     = rightRaceTimeUs;
-	r.left.reactionTimeUs  = leftReactionUs;
-	r.right.reactionTimeUs = rightReactionUs;
+static void computeHeatResults(HeatResults& result, const TimingInputs& timing) {
+	// foul and reactionTimeUs already populated by handleRxReaction() during RACING
+	result.left.raceTimeUs  = timing.leftTimeUs;
+	result.right.raceTimeUs = timing.rightTimeUs;
 
 	// No foul: carTime = raceTime - reactionTime (gate-drop to finish)
 	// Foul:    carTime = raceTime + reactionTime (gate dropped before GO, so car was rolling longer)
-	r.left.carTimeUs  = leftFoul  ? leftRaceTimeUs  + leftReactionUs
-	                              : leftRaceTimeUs  - leftReactionUs;
-	r.right.carTimeUs = rightFoul ? rightRaceTimeUs + rightReactionUs
-	                              : rightRaceTimeUs - rightReactionUs;
+	result.left.carTimeUs  = result.left.foul
+	                       ? timing.leftTimeUs  + result.left.reactionTimeUs
+	                       : timing.leftTimeUs  - result.left.reactionTimeUs;
+	result.right.carTimeUs = result.right.foul
+	                       ? timing.rightTimeUs + result.right.reactionTimeUs
+	                       : timing.rightTimeUs - result.right.reactionTimeUs;
 
-	r.left.winner  = !leftFoul  && (rightFoul || r.left.carTimeUs  < r.right.carTimeUs);
-	r.right.winner = !rightFoul && (leftFoul  || r.right.carTimeUs < r.left.carTimeUs);
-
-	return r;
+	result.left.winner  = !result.left.foul  && (result.right.foul || result.left.carTimeUs  < result.right.carTimeUs);
+	result.right.winner = !result.right.foul && (result.left.foul  || result.right.carTimeUs < result.left.carTimeUs);
 }
 
 static void displayCarTimes() {

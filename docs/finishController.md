@@ -27,26 +27,26 @@ The *sensors* module encapsulates finish sensor handling:
 
 Race state transitions are driven externally via messages from the start controller. The finish controller participates actively during *RACE_COUNTDOWN*, *RACE_RACING*, and *RACE_COMPLETE*.
 
-**RACE_COUNTDOWN** – On entry, *rx.RaceStart* is cleared. When *rx.RaceStart* arrives from the start controller, *micros*() is captured as *raceStartUs* and *armSensors*() is called. The state transitions to *RACE_RACING* when the start controller sends the matching state change.
+**RACE_COUNTDOWN** – *rx.RaceStart* is cleared at IDLE entry via `rx.clearHeatEvents()`, so it is already false when COUNTDOWN is entered. When *rx.RaceStart* arrives from the start controller, *micros*() is captured as `timingInputs.startUs` and *armSensors*() is called. The state transitions to *RACE_RACING* when the start controller sends the matching state change.
 
 **RACE_RACING** – On entry, recording flags and times are reset. Sensors are armed if not already armed from COUNTDOWN. Each loop iteration:
 
 1. *handleSensors*() polls *isLeftFinished*() / *isRightFinished*() and records finish times. If *maxRaceTimeUs* elapses before a sensor triggers, the max time is recorded for that lane.
-2. *handleRxReaction*() reads `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul` from the *SerialRxState* struct (updated by *rxSerial*()) and stores them in the per‑lane *raceResults* structs. Reaction times are stored as `uint32_t`; companion flags `rx.LeftReactionValid` / `rx.RightReactionValid` indicate whether a value has been received this race (both cleared to `false` on RACING entry).
+2. *handleRxReaction*() reads `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftFoul`, `rx.RightFoul` from the *SerialRxState* struct (updated by *rxSerial*()) and stores them in `heatResult` (`HeatResults`). Reaction times are stored as `uint32_t`; companion flags `rx.LeftReactionValid` / `rx.RightReactionValid` indicate whether a value has been received this race (both cleared to `false` at IDLE entry via `rx.clearHeatEvents()`).
 3. Once both lanes are recorded, *stm.target* is set to *RACE_COMPLETE* and the state machine transitions.
 
 **RACE_COMPLETE** – On entry:
 
-1. *computeRaceTimes*() calculates final car times:
-   * `carTimeUs = raceTimeUs + (foul ? +1 : -1) * reactionTimeUs`  
-     A foul (false start) adds reaction time; a clean start subtracts it.
-   * A lane cannot win if it fouled. If both foul, neither is the winner (treated as a tie).
-2. *displayCarTimes*() calls `updateDisplay(carTimeUs, isLeft)` for each lane. If the mode is not *MODE_GATEDROP*, *needReact* is set so reaction times are shown on the next display advance.
-3. *transmitWinnerToSC*() sends *MSG_WINNER* with a bitmask (`bit 0 = left, bit 1 = right, bit 2 = tie`).
+1. *computeHeatResults*(`heatResult`, `timingInputs`) completes the `HeatResults` struct in-place. `heatResult.left.foul` and `heatResult.left.reactionTimeUs` (and right) are already populated from RACING via *handleRxReaction*(). The function adds the remaining derived fields:
+   * `raceTimeUs` — copied from `timingInputs` (ISR-captured elapsed time)
+   * `carTimeUs = raceTimeUs + (foul ? +1 : -1) * reactionTimeUs` — a foul adds reaction time; a clean start subtracts it
+   * `winner` — false if the lane fouled; otherwise true if the opponent fouled or this lane's `carTimeUs` is lower
+2. *displayCarTimes*() calls `updateDisplay(carTimeUs, lane)` for each lane. Foul lanes are blanked. If the mode is not *MODE_GATEDROP*, *needReact* is set so reaction times are shown on the next display advance.
+3. `pending.queue(MSG_WINNER)` enqueues *MSG_WINNER* with a bitmask (`bit 0 = left, bit 1 = right, bit 2 = tie`).
 
 On subsequent *MSG_DISP_ADVANCE* events (triggered by the operator pressing Start on the start controller):
 
-* If *needReact* is true: *displayReactionTimes*() is called and *needReact* is cleared. (Note: clearing *needReact* inside *displayReactionTimes* is required; if omitted, repeated display-advance presses will loop on reaction display and the state machine cannot reach IDLE — see P0-9.)
+* If *needReact* is true: *displayReactionTimes*() is called and *needReact* is cleared.
 * Otherwise: the state machine targets *RACE_IDLE* and calls *txRaceState(RACE_IDLE)* to coordinate return to idle with the start controller.
 
 ---
@@ -70,19 +70,19 @@ The current race mode is held in *currentMode* (local to *finishController.cpp*)
 
 ### Display Design
 
-The firmware drives two 5‑digit seven‑segment displays via direct GPIO. `updateDisplay(uint32_t timeUs, bool isLeft)` performs:
+The firmware drives two 5‑digit seven‑segment displays via direct GPIO. `updateDisplay(uint32_t timeUs, Lane lane)` performs:
 
 1. Round time to the nearest millisecond: `tMs = (timeUs + 500) / 1000`. Clamp at 99,998 ms to prevent a 6‑digit overflow.
 2. Extract five digits: tens, ones, tenths, hundredths, thousandths (e.g. 1,234 ms → 0, 1, 2, 3, 4).
 3. Select the target lane by driving PIN_LANE1 (A2) or PIN_LANE2 (A3) LOW (active‑low enable on the 74HC238).
-4. For each digit, call `writeDigit(idx, val, showDecimal, isLeft)`:
+4. For each digit, call `writeDigit(idx, val, showDecimal)`:
    * Set the decimal‑point pin (D9) HIGH only for digit index 1 (between ones and tenths).
    * Drive address pins D2–D4 with the digit index (A0/A1/A2 on the demux).
    * Drive data pins D5–D8 with the 4‑bit BCD value (AD0–AD3 on the MC14543B).
    * Wait 30 µs for the MC14543B latch to settle.
 5. Disable both lane pins HIGH after all digits are written.
 
-`clearDisplay(bool isLeft)` follows the same lane‑select sequence but writes BCD `1111` (0xF) to all five positions, which the MC14543B interprets as a blank.
+`clearDisplay(Lane lane)` follows the same lane‑select sequence but writes BCD `1111` (0xF) to all five positions, which the MC14543B interprets as a blank.
 
 #### Pin Summary
 
@@ -108,9 +108,9 @@ The finish controller communicates with the start controller over a serial conne
 * **`rxSerial()`** – Called on every loop iteration. Parses incoming messages and updates the global `SerialRxState rx` struct. Fields used by the finish controller include `rx.State`, `rx.Mode`, `rx.RaceStart`, `rx.LeftFoul`, `rx.RightFoul`, `rx.LeftReactionTime`, `rx.RightReactionTime`, `rx.LeftReactionValid`, `rx.RightReactionValid`, and `rx.DisplayAdvanceFlag`.
 * **`txWinner(uint8_t winnerMask)`** – Sends MSG_WINNER to the start controller. Bit 0 = left wins, bit 1 = right wins, bit 2 = tie.
 * **`txRaceState(raceState newState)`** – Requests a coordinated state change. Used by the finish controller to initiate the return to RACE_IDLE from RACE_COMPLETE. Transitions are committed only when the start controller sends an ACK; TX_TIMEOUT or TX_FAILED causes the attempt to be abandoned.
-* **`resetTxState(serialMsgID id)`** – Resets the TX state machine for a given message ID after a transaction completes or fails.
+* **`txService()`** – Drives the TX FIFO queue; must be called once per main loop. Callers enqueue with `tx*()` functions and poll outcome with `txStatusOf(serialMsgID)`.
 
-All TX functions use a 3‑retry scheme with a 50 ms per‑retry timeout (`txTimeout = 50`).
+All TX functions use a single-in-flight FIFO queue with 3 retries and a 50 ms per-attempt timeout (`txTimeout = 50`). MSG_RACE_START is priority and jumps to the front of the queue.
 
 ---
 
@@ -124,7 +124,7 @@ The Nano 33 BLE includes a Nordic BLE radio. The BLE protocol and characteristic
 
 * **Confirm display wiring** – Verify that PIN_LANE1/PIN_LANE2 active‑low logic matches the 74HC238 enable wiring on your shield. Confirm that BCD 0xF blanks the display on your MC14543B revision.
 * **Implement BLE** – Define a BLE GATT service to transmit race results and, if desired, receive configuration commands from the race manager. Ensure BLE callbacks do not block timing‑critical sections.
-* **RFID car ID** – The `raceResults` struct has a reserved *carID* path but car identification is not yet transmitted over serial or BLE.
+* **RFID car ID** – Car identification is deferred to the `feature-rfid` branch (P3-1, P3-2). `LaneResult` will need a `carID` field once RFID is implemented.
 
 ---
 
