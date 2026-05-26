@@ -16,8 +16,16 @@
 #include "gates.h"
 #include "buttons.h"
 
-// Mode machine structure for managing mode transitions
-struct modeMachine {
+static byte modeIndicatorPattern(raceMode mode) {
+	switch (mode) {
+		case MODE_GATEDROP: return LIGHT_Y1;
+		case MODE_REACTION: return LIGHT_Y2;
+		case MODE_PRO:      return LIGHT_Y3;
+		default:            return LIGHT_GO;
+	}
+}
+
+struct modeSelect {
 	raceMode current;
 	raceMode target;
 	void nextMode() {
@@ -30,7 +38,6 @@ struct modeMachine {
 			default: 			target	= MODE_GATEDROP;	break;
 		}
 	}
-	uint8_t pattern;
 
 	void selfTransition(raceMode newMode) {
 		// 1. Check if already in target state
@@ -41,25 +48,16 @@ struct modeMachine {
 		// 2. Set intention to transition
 		target = newMode;
 
-		// 3. Prepare light pattern
-		switch (target){
-			case MODE_GATEDROP: pattern = LIGHT_Y1; break;
-			case MODE_REACTION: pattern = LIGHT_Y2; break;
-			case MODE_PRO:      pattern = LIGHT_Y3; break;
-			case MODE_DIALIIN:  /* fall-through */
-			default:            pattern = LIGHT_GO; break;
-		}
-
-		// 4. Enqueue coordinated change (no-op if already in flight)
+		// 3. Enqueue coordinated change (no-op if already in flight)
 		txRaceMode((uint8_t)target);
 
-		// 5. Check current TX status
+		// 4. Check current TX status
 		switch (txStatusOf(MSG_RACE_MODE)) {
 
 			case TX_ACKED:
 				current = target;
 				rx.Mode = (uint8_t)current;
-				startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);
+				startBlink(modeIndicatorPattern(target), 0x00, 3, 250, LIGHT_OFF);
 				return;
 
 			case TX_TIMEOUT:
@@ -87,15 +85,8 @@ struct modeMachine {
 		target 			= serialTgt;
 		current			= serialTgt;
 
-		// 3. Prepare and execute light pattern
-		switch (target){
-			case MODE_GATEDROP: pattern = LIGHT_Y1; break;
-			case MODE_REACTION: pattern = LIGHT_Y2; break;
-			case MODE_PRO:      pattern = LIGHT_Y3; break;
-			case MODE_DIALIIN:  /* fall-through */
-			default:            pattern = LIGHT_GO; break;
-		}
-		startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);	// blink new mode pattern 3x
+		// 3. Execute light pattern for new mode
+		startBlink(modeIndicatorPattern(target), 0x00, 3, 250, LIGHT_OFF);
 
 		return;
 
@@ -138,7 +129,7 @@ struct PendingTx {
 
 // State & mode machine instances
 static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
-static modeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
+static modeSelect mdm					= {MODE_GATEDROP, MODE_GATEDROP};
 
 // timing
 static raceTimingData raceTime			= {0, {0, 0}};
