@@ -129,18 +129,42 @@ struct PendingTx {
 
 // State & mode machine instances
 static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
-static modeSelect mdm					= {MODE_GATEDROP, MODE_GATEDROP};
+static modeSelect md					= {MODE_GATEDROP, MODE_GATEDROP};
 
 // timing
 static raceTimingData raceTime			= {0, {0, 0}};
 uint32_t tNow							= 0;			// current time in microseconds	
 
-// countdown 
+// countdown
 struct CountDownCtx {
-	countdownState state	= CD_IDLE;
-	countdownState prev		= CD_IDLE;
-	unsigned long timer		= 0;
-	unsigned long delay		= 0;		// set in CD_STAGED per mode
+	countdownState state  = CD_IDLE;
+	countdownState prev   = CD_IDLE;
+	unsigned long  timer  = 0;
+	unsigned long  delay  = 0;
+
+	bool changed() const { return state != prev; }
+
+	void tick(raceMode mode) {
+		prev = state;
+		unsigned long now = millis();
+		switch (state) {
+			case CD_STAGED:
+				delay = (mode == MODE_PRO) ? 400 : 500;
+				state = (mode == MODE_PRO) ? CD_Y1 : CD_Y3;
+				timer = now;
+				break;
+			case CD_Y3:
+				if (now - timer >= delay) { state = CD_Y2; timer = now; }
+				break;
+			case CD_Y2:
+				if (now - timer >= delay) { state = CD_Y1; timer = now; }
+				break;
+			case CD_Y1:
+				if (now - timer >= delay) { state = CD_GO; timer = now; }
+				break;
+			default: break;
+		}
+	}
 };
 static CountDownCtx cd;
 
@@ -160,10 +184,9 @@ static bool startReleased				= true;
 static bool modeReleased				= true;
 
 // Internal helpers (file-local)
-countdownState tickCountdownState(raceMode mode, countdownState cdState);
 static void handleModeChanges();
 static void handleEarlyStarts(unsigned long tn, raceMode mode);
-static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn);
+static void handleCountdownGoActions(long tn);
 static void handleTrackTriggers();
 static void handleDisplayAdvance();
 
@@ -176,8 +199,8 @@ void startControllerSetup(){
 	// Start in idle state.  These variables are declared in raceTypes.h.
 	stm.current					= RACE_IDLE;
 	stm.target					= RACE_IDLE;
-	mdm.current 				= MODE_GATEDROP;
-	mdm.target 					= MODE_GATEDROP;
+	md.current 				= MODE_GATEDROP;
+	md.target 					= MODE_GATEDROP;
 }
 
 void startControllerLoop(){
@@ -264,23 +287,22 @@ void startControllerLoop(){
 
 		case RACE_COUNTDOWN:
 			if(stm.entry){
-				stm.entry				= false;
-				cd.state 				= CD_STAGED;
-				cd.prev 			= cd.state;
+				stm.entry = false;
+				cd.state  = CD_STAGED;
 			}
-			
+
 			tNow = micros();
 
-			handleEarlyStarts(tNow, mdm.current);						// Watch for early starts, drop gates, and log fouls.
+			handleEarlyStarts(tNow, md.current);
 
-			cd.state = tickCountdownState(mdm.current, cd.state);			// Tick the countdown state.
-			if (cd.state == CD_GO){
-				handleCountdownGoActions(cd.state, cd.prev, tNow);	// When GO is reached, start race and transition state.
+			cd.tick(md.current);
+
+			if (cd.state == CD_GO && cd.changed()) {
+				handleCountdownGoActions(tNow);
 			}
-			if(cd.state != cd.prev){
-				byte cdLights	= buildLightConfig(cd.state, raceTime.isFoul(LANE_LEFT), raceTime.isFoul(LANE_RIGHT), mdm.current);	// set new light pattern
-				updateLights(cdLights);									// update lights only when new cd.state
-				cd.prev = cd.state;
+			if (cd.changed()) {
+				byte cdLights = buildLightConfig(cd.state, raceTime.isFoul(LANE_LEFT), raceTime.isFoul(LANE_RIGHT), md.current);
+				updateLights(cdLights);
 			}
 
 			if (stm.target != stm.current) stm.selfTransition(stm.target);
@@ -301,7 +323,7 @@ void startControllerLoop(){
 
 			tNow = micros();
 
-			if (mdm.current != MODE_GATEDROP){
+			if (md.current != MODE_GATEDROP){
 				handleTrackTriggers();
 			}
 
@@ -365,16 +387,16 @@ void startControllerLoop(){
  static void handleModeChanges(){
  	// Handle mode changes via button press or rxSerial.
 	// Mode changes preempt any in-progress blink — startBlink() in selfTransition/rxTransition overwrites.
-	if (rx.Mode != mdm.current){
-		mdm.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
+	if (rx.Mode != md.current){
+		md.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
 	} else {
 		if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
 		if (isModePressed() && modeReleased){
 			modeReleased			= false;					// don't revisit until released
-			mdm.nextMode();										// Select mode to advance to per transition order
+			md.nextMode();										// Select mode to advance to per transition order
 		}
 	}
-	if (mdm.target != mdm.current) mdm.selfTransition(mdm.target);
+	if (md.target != md.current) md.selfTransition(md.target);
 }
 
  /* =========================================================================
@@ -397,58 +419,17 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode){
 	}
 }
 
-static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn){
-	// On first CD_GO loop: record race start time, arm pending TX, drop gates if gate-drop mode.
-	if (cdNow != cdPrev){
-		stm.target           = RACE_RACING;
-		raceTime.raceStartUs = tn;
-		pending.queue(MSG_RACE_START);
+static void handleCountdownGoActions(long tn){
+	stm.target           = RACE_RACING;
+	raceTime.raceStartUs = tn;
+	pending.queue(MSG_RACE_START);
 
-		if (mdm.current == MODE_GATEDROP){
-			dropGate(LANE_LEFT);
-			dropGate(LANE_RIGHT);
-		}
+	if (md.current == MODE_GATEDROP){
+		dropGate(LANE_LEFT);
+		dropGate(LANE_RIGHT);
 	}
 }
 
-countdownState tickCountdownState(raceMode mode, countdownState cdState){
-	// Helper function to manage countdown timing based on race mode
-	// This function will handle managing stage delays as well as managing the countdown state
-	unsigned long currentTime = millis();
-	switch (cdState) {
-		case CD_STAGED:
-			if (mode == MODE_PRO){
-				cd.delay = 400;		// Pro mode uses a 400 ms delay between stages
-				cdState = CD_Y1;
-			} else {
-				cd.delay = 500;		// Standard modes use a 500 ms delay between stages
-				cdState = CD_Y3;
-			}
-			cd.timer = currentTime;
-			break;
-		case CD_Y3:
-			if (currentTime - cd.timer >= cd.delay){
-				cdState = CD_Y2;
-				cd.timer = currentTime;
-			}
-			break;
-		case CD_Y2:
-			if (currentTime - cd.timer >= cd.delay){
-				cdState = CD_Y1;
-				cd.timer = currentTime;
-			}
-			break;
-		case CD_Y1:
-			if (currentTime - cd.timer >= cd.delay){
-				cdState = CD_GO;
-				cd.timer = currentTime;
-			}
-			break;
-		default:
-			break;
-	}
-	return cdState;	
-}
 
 /* =========================================================================
  *                        RACE_RACING HELPER FUNCTIONS
