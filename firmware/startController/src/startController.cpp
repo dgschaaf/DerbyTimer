@@ -102,6 +102,8 @@ struct raceTimingData {
 		laneStartUs[0] = 0;
 		laneStartUs[1] = 0;
 	}
+	void recordRaceStart(uint32_t tn)         { raceStartUs    = tn; }
+	void recordTrigger(Lane lane, uint32_t tn) { laneStartUs[lane] = tn; }
 	bool isFoul(Lane lane) const {
 		if (laneStartUs[lane] == 0) return false;
 		if (raceStartUs == 0)       return true;   // triggered before GO
@@ -133,7 +135,7 @@ static modeSelect md					= {MODE_GATEDROP, MODE_GATEDROP};
 
 // timing
 static raceTimingData raceTime			= {0, {0, 0}};
-uint32_t tNow							= 0;			// current time in microseconds	
+static uint32_t tNow					= 0;
 
 // countdown
 struct CountDownCtx {
@@ -170,8 +172,6 @@ static CountDownCtx cd;
 
 // racing
 static PendingTx pending;
-uint8_t foulMask						= 0;			// bitmask of fouls to send
-
 // results
 static bool winLightsPend				= false;		// marker if result lights need to display
 
@@ -187,7 +187,7 @@ static bool modeReleased				= true;
 static void handleModeChanges();
 static void handleEarlyStarts(unsigned long tn, raceMode mode);
 static void handleCountdownGoActions(long tn);
-static void handleTrackTriggers();
+static void handleTrackTriggers(uint32_t tn);
 static void handleDisplayAdvance();
 
 void startControllerSetup(){
@@ -315,16 +315,13 @@ void startControllerLoop(){
 		case RACE_RACING:
 			if(stm.entry){
 				stm.entry  = false;
-				foulMask   = 0;
-				if (raceTime.isFoul(LANE_LEFT))  foulMask |= foul_left;
-				if (raceTime.isFoul(LANE_RIGHT)) foulMask |= foul_right;
-				pending.queue(MSG_FOUL);		// always send foul status on entry to RACING
+				pending.queue(MSG_FOUL);
 			}
 
 			tNow = micros();
 
 			if (md.current != MODE_GATEDROP){
-				handleTrackTriggers();
+				handleTrackTriggers(tNow);
 			}
 
 			if (!pending.anyPending()) {
@@ -409,19 +406,19 @@ void startControllerLoop(){
 static void handleEarlyStarts(unsigned long tn, raceMode mode){
 	if (mode != MODE_GATEDROP){
 		if (isLeftPressed() && isLaneUp(LANE_LEFT)){
-			raceTime.laneStartUs[LANE_LEFT]  = tn;
+			raceTime.recordTrigger(LANE_LEFT,  tn);
 			dropGate(LANE_LEFT);
 		}
 		if (isRightPressed() && isLaneUp(LANE_RIGHT)){
-			raceTime.laneStartUs[LANE_RIGHT] = tn;
+			raceTime.recordTrigger(LANE_RIGHT, tn);
 			dropGate(LANE_RIGHT);
 		}
 	}
 }
 
 static void handleCountdownGoActions(long tn){
-	stm.target           = RACE_RACING;
-	raceTime.raceStartUs = tn;
+	stm.target = RACE_RACING;
+	raceTime.recordRaceStart(tn);
 	pending.queue(MSG_RACE_START);
 
 	if (md.current == MODE_GATEDROP){
@@ -435,14 +432,14 @@ static void handleCountdownGoActions(long tn){
  *                        RACE_RACING HELPER FUNCTIONS
  * ========================================================================= */
 
-static void handleTrackTriggers(){
+static void handleTrackTriggers(uint32_t tn){
 	if (isLeftPressed() && isLaneUp(LANE_LEFT)){
-		raceTime.laneStartUs[LANE_LEFT]  = tNow;
+		raceTime.recordTrigger(LANE_LEFT,  tn);
 		dropGate(LANE_LEFT);
 		pending.queue(MSG_LEFT_REACT);
 	}
 	if (isRightPressed() && isLaneUp(LANE_RIGHT)){
-		raceTime.laneStartUs[LANE_RIGHT] = tNow;
+		raceTime.recordTrigger(LANE_RIGHT, tn);
 		dropGate(LANE_RIGHT);
 		pending.queue(MSG_RIGHT_REACT);
 	}
@@ -470,9 +467,12 @@ void PendingTx::queue(serialMsgID id) {
 		case MSG_RACE_START:
 			if (txRaceStart(0b0001))                                    raceStart  = true;
 			break;
-		case MSG_FOUL:
-			if (txFoulStatus(foulMask))                                 foulStatus = true;
+		case MSG_FOUL: {
+			uint8_t mask = (raceTime.isFoul(LANE_LEFT)  ? foul_left  : 0)
+			             | (raceTime.isFoul(LANE_RIGHT) ? foul_right : 0);
+			if (txFoulStatus(mask)) foulStatus = true;
 			break;
+		}
 		case MSG_LEFT_REACT:
 			if (txReactionTime(raceTime.reactionTimeUs(LANE_LEFT),  LANE_LEFT))  leftReact  = true;
 			break;
