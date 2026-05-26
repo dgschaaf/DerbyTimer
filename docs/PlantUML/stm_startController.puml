@@ -156,18 +156,23 @@ note right of COMPLETE
 end note
 
 ' ============================================================
-' TESTING  (stub: immediately self-transitions to IDLE)
+' TESTING  (4-phase self-test; hold MODE at power-up to enter)
 ' ============================================================
 state "TESTING" as TESTING {
-  TESTING : entry / stm.selfTransition(RACE_IDLE)
-  TESTING : note: no test logic currently implemented
+  TESTING : entry / rt.reset(); txRaceState(RACE_TEST) [ping FC]
+  TESTING : do / Phase 0: wait FC ACK (2s); blue 3x = pass, code 107 = no FC (non-fatal)
+  TESTING : do / Phase 1: chase all 8 lights L->R, R->L; 3x all-on/all-off (150ms/500ms steps)
+  TESTING : do / Phase 2: returnGates(); verify areLanesReady() (codes 101/102); dropGate(L/R)
+  TESTING : do / Phase 3: prompt START, MODE, LEFT, RIGHT buttons (GO blinks; 5s each; codes 103-106)
+  TESTING : do / Phase 4: GO stays green (all pass) or FL+FR blink N times (N = fail count); loops
+  TESTING : note: exit via power-cycle; future: MSG_RACE_STATE(IDLE) from Race Manager
 }
 
 ' ============================================================
 ' TRANSITIONS
 ' ============================================================
 IDLE      --> STAGING   : Button_Start\n(not during blink)
-IDLE      --> TESTING   : MSG_RACE_STATE(TEST)
+IDLE      --> TESTING   : MODE held at power-up\n[or MSG_RACE_STATE(TEST)]
 
 STAGING   --> COUNTDOWN : Button_Start\n[MSG_RACE_STATE(COUNTDOWN) TX_ACKED]
 STAGING   --> IDLE      : Button_Mode\n[MSG_RACE_STATE(IDLE) TX_ACKED]
@@ -180,6 +185,5 @@ RACING    --> IDLE      : MSG_RACE_START or MSG_FOUL TX_TIMEOUT/TX_FAILED\n[stm.
 
 COMPLETE  --> IDLE      : MSG_RACE_STATE(IDLE)\n[sent by finishController]
 
-TESTING   --> IDLE      : immediate (entry self-transition)
 
 @enduml

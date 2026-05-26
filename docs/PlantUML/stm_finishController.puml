@@ -146,12 +146,15 @@ note right of RaceComplete
 end note
 
 ' ============================================================
-' TESTING  (stub: immediately self-transitions to IDLE)
+' TESTING  (4-phase self-test; entered via MSG_RACE_STATE(RACE_TEST) from SC)
 ' ============================================================
 state "Testing" as Testing {
-  Testing : entry / stm.target = RACE_IDLE
-  Testing : do / stm.selfTransition(stm.target)
-  Testing : note: no test logic currently implemented
+  Testing : entry / fct.reset(); fct.scCommReceived = (rx.State == RACE_TEST)
+  Testing : do / Phase 1: show 88.888 (1s); countdown 05.000->01.000 (500ms steps); clear displays
+  Testing : do / Phase 2: armSensors(); live display counts up; freeze on beam-break (8s timeout; codes 201/202)
+  Testing : do / Phase 3: wait 3s for SC ping MSG_RACE_STATE(RACE_TEST); code 203 if not received
+  Testing : do / Phase 4: 00.000 both lanes (all pass) or failure-code cycle (2s/1s/88.888 end); loops
+  Testing : note: exit via power-cycle; future: MSG_RACE_STATE(IDLE) from Race Manager
 }
 
 ' ============================================================
@@ -171,6 +174,5 @@ Racing      --> Idle         : MSG_ERROR received\n[stm.forceIdle()]
 
 RaceComplete --> Idle        : MSG_DISP_ADVANCE\n[when !needReact AND !pending.anyPending()\n-> stm.selfTransition(IDLE)]
 
-Testing     --> Idle         : immediate (entry self-transition)
 
 @enduml

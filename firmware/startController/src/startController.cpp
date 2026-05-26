@@ -15,6 +15,7 @@
 #include "lights.h"
 #include "gates.h"
 #include "buttons.h"
+#include "debug.h"
 
 static byte modeIndicatorPattern(raceMode mode) {
 	switch (mode) {
@@ -115,6 +116,27 @@ struct raceTimingData {
 	}
 };
 
+struct RaceTestCtx {
+	uint8_t  phase;
+	uint8_t  subPhase;
+	unsigned long timer;
+	uint8_t  failCodes[7];
+	uint8_t  failCount;
+	bool     btnArmed;
+
+	void reset() {
+		phase = 0; subPhase = 0; timer = 0;
+		failCount = 0; btnArmed = false;
+		memset(failCodes, 0, sizeof(failCodes));
+	}
+	void addFail(uint8_t c) { if (failCount < 7) failCodes[failCount++] = c; }
+	bool elapsed(unsigned long ms) const {
+		return (unsigned long)(millis() - timer) >= ms;
+	}
+	void startTimer() { timer = millis(); }
+	void nextPhase(uint8_t p) { phase = p; subPhase = 0; startTimer(); }
+};
+
 struct PendingTx {
 	bool raceStart  = false;
 	bool foulStatus = false;
@@ -183,6 +205,7 @@ static errCode pendingErrorCode			= err_NULL;		// error code to report to FC on 
 // button management
 static bool startReleased				= true;
 static bool modeReleased				= true;
+static RaceTestCtx rt;
 
 // Internal helpers (file-local)
 static void handleModeChanges();
@@ -190,6 +213,29 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode);
 static void handleCountdownGoActions(long tn);
 static void handleTrackTriggers(uint32_t tn);
 static void handleDisplayAdvance();
+
+// ==================== RACE_TEST SUPPORT ====================
+// Light chase sequence: L→R sweep, R→L sweep, 3× all-on/all-off
+struct LightStep { byte pattern; uint16_t ms; };
+static const LightStep kLightSteps[] = {
+	{ LIGHT_BL, 150 }, { LIGHT_BR, 150 }, { LIGHT_Y1, 150 }, { LIGHT_Y2, 150 },
+	{ LIGHT_Y3, 150 }, { LIGHT_GO, 150 }, { LIGHT_FL, 150 }, { LIGHT_FR, 150 },
+	{ LIGHT_FR, 150 }, { LIGHT_FL, 150 }, { LIGHT_GO, 150 }, { LIGHT_Y3, 150 },
+	{ LIGHT_Y2, 150 }, { LIGHT_Y1, 150 }, { LIGHT_BR, 150 }, { LIGHT_BL, 150 },
+	{ 0xFF,     500 }, { 0x00,     500 }, { 0xFF,     500 },
+	{ 0x00,     500 }, { 0xFF,     500 }, { 0x00,     500 },
+};
+static const uint8_t kLightStepCount = sizeof(kLightSteps) / sizeof(kLightSteps[0]);
+
+// Button test sequence: fail code + confirm light + check function
+struct BtnTest { uint8_t failCode; byte confirmLight; bool (*check)(); };
+static const BtnTest kBtnTests[] = {
+	{ 103, LIGHT_BL, isStartPressed },
+	{ 104, LIGHT_BR, isModePressed  },
+	{ 105, LIGHT_Y1, isLeftPressed  },
+	{ 106, LIGHT_Y2, isRightPressed },
+};
+static const uint8_t kBtnTestCount = sizeof(kBtnTests) / sizeof(kBtnTests[0]);
 
 void startControllerSetup(){
 	setupSerial();
@@ -202,6 +248,13 @@ void startControllerSetup(){
 	stm.target					= RACE_IDLE;
 	md.current 				= MODE_GATEDROP;
 	md.target 					= MODE_GATEDROP;
+
+	// Hold MODE button at power-up to enter self-test mode
+	if (isModePressed()) {
+		stm.current = RACE_TEST;
+		stm.target  = RACE_TEST;
+		stm.entry   = true;
+	}
 }
 
 void startControllerLoop(){
@@ -230,9 +283,11 @@ void startControllerLoop(){
 		case RACE_IDLE:
 			if(stm.entry){
 				stm.entry		= false;
+				DBG("[SC] ->IDLE");
 				cd.state 		= CD_IDLE;
 				raceTime.reset();
 				rx.clearHeatEvents();
+				cancelBlink();
 				updateLights(LIGHT_OFF);
 				dropGate(LANE_LEFT);
 				dropGate(LANE_RIGHT);
@@ -265,6 +320,7 @@ void startControllerLoop(){
 		case RACE_STAGING:
 			if(stm.entry){
 				stm.entry			= false;
+				DBG("[SC] ->STAGING");
 				returnGates(); 											// reset the gate status to park the cars
 				cancelBlink();												// stop any pending blink before setting steady state
 				updateLights(LIGHT_BL | LIGHT_BR); 						// set the lights to blue
@@ -289,6 +345,7 @@ void startControllerLoop(){
 		case RACE_COUNTDOWN:
 			if(stm.entry){
 				stm.entry = false;
+				DBG("[SC] ->COUNTDOWN");
 				cd.state  = CD_STAGED;
 			}
 
@@ -316,6 +373,7 @@ void startControllerLoop(){
 		case RACE_RACING:
 			if(stm.entry){
 				stm.entry  = false;
+				DBG("[SC] ->RACING");
 				pending.queue(MSG_FOUL);
 			}
 
@@ -337,6 +395,7 @@ void startControllerLoop(){
 		case RACE_COMPLETE:
 			if(stm.entry){
 				stm.entry      = false;
+				DBG("[SC] ->COMPLETE");
 				winLightsPend  = true;
 				winLightTimer  = millis();
 				cancelBlink();
@@ -365,12 +424,153 @@ void startControllerLoop(){
 			}
 			break;
 			
-		case RACE_TEST:  // P2: self-test not yet implemented — falls back to IDLE (see project-status.md)
-			if(stm.entry){
-				stm.selfTransition(RACE_IDLE);
+		case RACE_TEST:
+			if (stm.entry) {
 				stm.entry = false;
+				DBG("[SC] ->RACE_TEST");
+				cancelBlink();
+				updateLights(LIGHT_OFF);
+				rt.reset();
 			}
-			if(stm.exit){
+
+			switch (rt.phase) {
+				case 0: {  // FC comm ping: verify FC responds to RACE_TEST state message
+					switch (rt.subPhase) {
+						case 0:
+							txRaceState((uint8_t)RACE_TEST);
+							rt.startTimer();
+							rt.subPhase = 1;
+							break;
+						case 1: {
+							txStatus s = txStatusOf(MSG_RACE_STATE);
+							if (s == TX_ACKED) {
+								startBlink(LIGHT_BL | LIGHT_BR, LIGHT_OFF, 3, 250, LIGHT_OFF);
+								rt.nextPhase(1);
+							} else if (s == TX_TIMEOUT || s == TX_FAILED || rt.elapsed(2000)) {
+								rt.addFail(107);
+								startBlink(LIGHT_FL | LIGHT_FR, LIGHT_OFF, 1, 250, LIGHT_OFF);
+								rt.nextPhase(1);
+							}
+							break;
+						}
+					}
+					break;
+				}
+
+				case 1: {  // Light chase: wait for Phase 0 feedback blink, then step through kLightSteps[]
+					updateBlink();
+					if (isBlinking()) break;
+					if (rt.subPhase == 0) {
+						updateLights(kLightSteps[0].pattern);
+						rt.startTimer();
+						rt.subPhase = 1;
+					} else if (rt.elapsed(kLightSteps[rt.subPhase - 1].ms)) {
+						if (rt.subPhase < kLightStepCount) {
+							updateLights(kLightSteps[rt.subPhase].pattern);
+							rt.startTimer();
+							rt.subPhase++;
+						} else {
+							updateLights(LIGHT_OFF);
+							rt.nextPhase(2);
+						}
+					}
+					break;
+				}
+
+				case 2: {  // Gates: return both, verify up, drop L then R
+					switch (rt.subPhase) {
+						case 0:
+							returnGates();
+							rt.startTimer();
+							rt.subPhase = 1;
+							break;
+						case 1:
+							updateGates();
+							if (rt.elapsed(600)) {
+								if (!areLanesReady()) {
+									if (!isLaneUp(LANE_LEFT))  rt.addFail(101);
+									if (!isLaneUp(LANE_RIGHT)) rt.addFail(102);
+								}
+								dropGate(LANE_LEFT);
+								rt.startTimer();
+								rt.subPhase = 2;
+							}
+							break;
+						case 2:
+							if (rt.elapsed(300)) {
+								dropGate(LANE_RIGHT);
+								rt.startTimer();
+								rt.subPhase = 3;
+							}
+							break;
+						case 3:
+							if (rt.elapsed(300)) rt.nextPhase(3);
+							break;
+					}
+					break;
+				}
+
+				case 3: {  // Buttons: prompt each of 4 buttons in sequence, 5s timeout per button
+					if (rt.subPhase >= kBtnTestCount) {
+						updateBlink();
+						if (!isBlinking()) {
+							updateLights(LIGHT_OFF);
+							rt.nextPhase(4);
+						}
+						break;
+					}
+
+					updateBlink();
+					bool pressed = kBtnTests[rt.subPhase].check();
+
+					if (!rt.btnArmed) {
+						// Wait for the button to be released before starting the 5s countdown
+						if (!pressed) {
+							rt.btnArmed = true;
+							rt.startTimer();
+						}
+						break;
+					}
+
+					// GO blink = "press a button" prompt; restarts each short cycle
+					if (!isBlinking()) startBlink(LIGHT_GO, LIGHT_OFF, 2, 400, LIGHT_GO);
+
+					if (pressed) {
+						cancelBlink();
+						startBlink(kBtnTests[rt.subPhase].confirmLight, LIGHT_OFF, 3, 150, LIGHT_OFF);
+						rt.subPhase++;
+						rt.btnArmed = false;
+					} else if (rt.elapsed(5000)) {
+						rt.addFail(kBtnTests[rt.subPhase].failCode);
+						rt.subPhase++;
+						rt.btnArmed = false;
+					}
+					break;
+				}
+
+				case 4: {  // Result display — stays here permanently (power-cycle to exit)
+					updateBlink();
+					if (rt.failCount == 0) {
+						// All pass: GO blinks 5x then stays on
+						if (rt.subPhase == 0) {
+							startBlink(LIGHT_GO, LIGHT_OFF, 5, 300, LIGHT_GO);
+							rt.subPhase = 1;
+						}
+					} else {
+						// Any failure: red blinks failCount times, pauses 1s, repeats
+						if (rt.subPhase == 0 && rt.elapsed(1000)) {
+							startBlink(LIGHT_FL | LIGHT_FR, LIGHT_OFF, rt.failCount, 400, LIGHT_OFF);
+							rt.subPhase = 1;
+						} else if (rt.subPhase == 1 && !isBlinking()) {
+							rt.startTimer();
+							rt.subPhase = 0;
+						}
+					}
+					break;
+				}
+			}
+
+			if (stm.exit) {
 				stm.exit = false;
 			}
 			break;
@@ -412,10 +612,12 @@ void startControllerLoop(){
 static void handleEarlyStarts(unsigned long tn, raceMode mode){
 	if (mode != MODE_GATEDROP){
 		if (isLeftPressed() && isLaneUp(LANE_LEFT)){
+			DBG("[SC] early start: LEFT");
 			raceTime.recordTrigger(LANE_LEFT,  tn);
 			dropGate(LANE_LEFT);
 		}
 		if (isRightPressed() && isLaneUp(LANE_RIGHT)){
+			DBG("[SC] early start: RIGHT");
 			raceTime.recordTrigger(LANE_RIGHT, tn);
 			dropGate(LANE_RIGHT);
 		}
@@ -423,6 +625,7 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode){
 }
 
 static void handleCountdownGoActions(long tn){
+	DBG("[SC] GO -> queue RACE_START");
 	stm.target = RACE_RACING;
 	raceTime.recordRaceStart(tn);
 	pending.queue(MSG_RACE_START);
@@ -440,11 +643,13 @@ static void handleCountdownGoActions(long tn){
 
 static void handleTrackTriggers(uint32_t tn){
 	if (isLeftPressed() && isLaneUp(LANE_LEFT)){
+		DBG("[SC] trigger: LEFT");
 		raceTime.recordTrigger(LANE_LEFT,  tn);
 		dropGate(LANE_LEFT);
 		pending.queue(MSG_LEFT_REACT);
 	}
 	if (isRightPressed() && isLaneUp(LANE_RIGHT)){
+		DBG("[SC] trigger: RIGHT");
 		raceTime.recordTrigger(LANE_RIGHT, tn);
 		dropGate(LANE_RIGHT);
 		pending.queue(MSG_RIGHT_REACT);
@@ -501,6 +706,7 @@ void PendingTx::checkOutcomes() {
 		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
 			// FC sensors may not be armed — heat is unrecoverable. Abort to IDLE.
 			raceStart = false;
+			DBG("[SC] RACE_START fail->forceIdle");
 			txError(err_START_TX_TIMEOUT);
 			stm.forceIdle();
 		}
@@ -510,6 +716,7 @@ void PendingTx::checkOutcomes() {
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			if (s != TX_ACKED) {
 				// Foul data lost — result cannot be trusted. Abort to IDLE.
+				DBG("[SC] FOUL fail->forceIdle");
 				txError(err_STATE_TX_TIMEOUT);
 				stm.forceIdle();
 			}

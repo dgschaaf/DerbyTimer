@@ -135,9 +135,33 @@ KiCad schematics and PCB layouts are in `hardware/startBoard/` and `hardware/fin
 
 ## Testing
 
-### Software Protocol Tests (`firmware/swTest/`)
+### L1 — Static Analysis
 
-Upload `derbySerialTester.ino` to one controller and `derbySerialResponder.ino` to the other. Interactive serial commands test all 13 message types, timing, error handling, and full race sequence simulation. See `derbySerialTester_Documentation.md` for the test protocol.
+`--warnings all` is included in the VS Code build tasks. `cppcheck` is in `.vscode/extensions.json` recommendations. Catches uninitialized variables, missing `switch` defaults, and signed/unsigned mismatches at compile time.
+
+### L2 — Desktop Unit Tests (`test/native/`)
+
+PlatformIO native environment (`pio test -e native`). Framework and stub files are in place. Activate by installing the PlatformIO VS Code extension and running `pio pkg install` (see P2-35 in `.claude/project-status.md`).
+
+### L3a — Serial Protocol Tests (`firmware/fwTest/`)
+
+Upload `derbySerialTester.ino` to one Nano and `derbySerialResponder.ino` to a second Nano wired cross-connected (D5/D6 SoftwareSerial). Interactive serial commands test all message types, ACK/NACK retry, timeout, priority queue, and full race sequence simulation. See `derbySerialTester_Documentation.md` for wiring and test protocol.
+
+### L3b — Laptop UART Monitor (`tools/uart_monitor.py`)
+
+`python tools/uart_monitor.py <COMx>` — four modes: passive monitor (log all messages), SC simulator (scripted state walk), FC simulator (auto-ACK + send winner on keypress), protocol injector (interactive menu). Requires `pip install pyserial`.
+
+### L4 — RACE_TEST Self-Test (built-in)
+
+Hold the MODE button on the Start Controller at power-up to enter self-test mode. Both controllers run independent test sequences (see `docs/race-test-codes.md`):
+
+- **SC**: FC communication ping, light chase (all 8 LEDs), gate cycle (return + drop), interactive button verification
+- **FC**: Display segment test (88.888 countdown), sensor beam-break verification, SC communication check
+- Results shown on SC lights and FC displays with failure codes for any failed phase.
+
+### L5 — Debug Serial Mode (`firmware/lib/shared/debug.h`)
+
+Compile with `-DDERBY_DEBUG` to enable structured serial log output on any state transition, TX/RX event, sensor fire, or foul detection — without affecting timing. See the debug task in `.vscode/tasks.json`.
 
 ### Hardware Tests (`hardware/hwTest/`)
 
@@ -203,7 +227,6 @@ The following are intentional v1.0 scope boundaries, not bugs:
 - **BLE / Race Manager** — The Finish Controller's Nordic radio is unused. BLE integration is planned for the `feature-raceManager` branch. Placeholder call sites are marked `// future:` in source.
 - **RFID car identification** — Not implemented in v1.0. Reserved for the `feature-rfid` branch.
 - **Dial-In mode** — Implemented in firmware but only activatable via BLE from a Race Manager. Cannot be selected via the mode button in standalone operation.
-- **No automated tests** — Verification is manual bench testing only. No unit test suite exists.
 - **Growth feature branches** — `feature-rfid` and `feature-raceManager` are design and early development branches. They are not merged to main, are not guaranteed to compile, and are not part of v1.0 scope.
 
 ---

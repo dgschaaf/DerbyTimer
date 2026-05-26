@@ -12,7 +12,7 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 #### Race Management
 
 * **Four Race Modes**: Gate Drop, Reaction Time, Pro Tree, and Dial-In. The first three cycle via the mode button. Dial-In is only activated by a BLE command from the Race Manager — it requires historical run data to compute handicaps, which is beyond the scope of the standalone controllers.
-* **Six Race States**: Idle → Staging → Countdown → Racing → Complete → (back to Idle); Test state exists but immediately returns to Idle
+* **Six Race States**: Idle → Staging → Countdown → Racing → Complete → (back to Idle); Test state (RACE_TEST) runs a 4-phase self-test: FC communication ping, light chase, gate cycle, and interactive button verification
 * **Automated Sequencing**: Handles complete race lifecycle with state-driven logic
 
 #### Hardware Control
@@ -57,7 +57,7 @@ IDLE ──[Start]──> STAGING ──[Start]──> COUNTDOWN ──[GO]─�
  ^                   |                                                                 |
  └───────[Mode]──────┘                                              [Start/Display]───┘
  ^
- └──── TEST (immediately returns to IDLE)
+ └──── TEST (4-phase self-test; hold MODE at power-up to enter)
 ```
 
 ##### State Characteristics:
@@ -171,7 +171,7 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 #### Testing Recommendations
 1. Light test pattern on startup
 2. Gate cycling verification (return solenoid resets to park)
-3. Serial loopback using swTest/ sketches (derbySerialTester + derbySerialResponder)
+3. Serial loopback using fwTest/ sketches (derbySerialTester + derbySerialResponder)
 4. Timing accuracy validation with reaction-time simulation
 
 ### Summary
