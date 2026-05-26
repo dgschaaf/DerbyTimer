@@ -18,6 +18,7 @@
 
 struct LaneResult {
 	bool		foul;
+	bool		dnf;
 	bool		winner;
 	uint32_t	raceTimeUs;
 	uint32_t	reactionTimeUs;
@@ -35,6 +36,8 @@ struct TimingInputs {
 	uint32_t rightTimeUs;
 	bool     leftRecorded;
 	bool     rightRecorded;
+	bool     leftDnf;
+	bool     rightDnf;
 };
 
 struct PendingTx {
@@ -167,6 +170,8 @@ void finishControllerLoop() {
 				timingInputs.rightRecorded		= false;
 				timingInputs.leftTimeUs			= 0;
 				timingInputs.rightTimeUs		= 0;
+				timingInputs.leftDnf			= false;
+				timingInputs.rightDnf			= false;
 				stm.entry 				= false;
 				// Only arm if not already armed from COUNTDOWN state
 				if (timingInputs.startUs == 0) {
@@ -191,11 +196,14 @@ void finishControllerLoop() {
 
 		case RACE_COMPLETE:
 			if(stm.entry){
-				needReact				= (currentMode == MODE_REACTION || currentMode == MODE_PRO);
 				computeHeatResults(heatResult, timingInputs);
 				displayCarTimes();
+				bool leftValid  = !heatResult.left.foul  && !heatResult.left.dnf;
+				bool rightValid = !heatResult.right.foul && !heatResult.right.dnf;
+				needReact = (currentMode == MODE_REACTION || currentMode == MODE_PRO)
+				          && (leftValid || rightValid);
 				winnerMask = 0;
-				if (heatResult.left.foul && heatResult.right.foul) {
+				if (!leftValid && !rightValid) {
 					winnerMask = winner_noResult;
 				} else {
 					if (heatResult.left.winner)  winnerMask |= winner_leftWin;
@@ -268,6 +276,7 @@ void handleSensors() {
 			timingInputs.leftRecorded = true;
 		} else if (elapsed > config.maxRaceTimeUs) {
 			timingInputs.leftTimeUs   = config.maxRaceTimeUs;
+			timingInputs.leftDnf      = true;
 			timingInputs.leftRecorded = true;
 		}
     }
@@ -278,6 +287,7 @@ void handleSensors() {
 			timingInputs.rightRecorded = true;
 		} else if (elapsed > config.maxRaceTimeUs) {
 			timingInputs.rightTimeUs   = config.maxRaceTimeUs;
+			timingInputs.rightDnf      = true;
 			timingInputs.rightRecorded = true;
 		}
     }
@@ -309,11 +319,14 @@ void handleRxReaction() {
  * ========================================================================= */
 static void computeHeatResults(HeatResults& result, const TimingInputs& timing) {
 	// foul and reactionTimeUs already populated by handleRxReaction() during RACING
+	result.left.dnf         = timing.leftDnf;
+	result.right.dnf        = timing.rightDnf;
 	result.left.raceTimeUs  = timing.leftTimeUs;
 	result.right.raceTimeUs = timing.rightTimeUs;
 
 	// No foul: carTime = raceTime - reactionTime (gate-drop to finish)
 	// Foul:    carTime = raceTime + reactionTime (gate dropped before GO, so car was rolling longer)
+	// DNF:     carTime is computed but meaningless -- winner logic uses dnf flag, display blanks it
 	result.left.carTimeUs  = result.left.foul
 	                       ? timing.leftTimeUs  + result.left.reactionTimeUs
 	                       : timing.leftTimeUs  - result.left.reactionTimeUs;
@@ -321,23 +334,25 @@ static void computeHeatResults(HeatResults& result, const TimingInputs& timing) 
 	                       ? timing.rightTimeUs + result.right.reactionTimeUs
 	                       : timing.rightTimeUs - result.right.reactionTimeUs;
 
-	result.left.winner  = !result.left.foul  && (result.right.foul || result.left.carTimeUs  < result.right.carTimeUs);
-	result.right.winner = !result.right.foul && (result.left.foul  || result.right.carTimeUs < result.left.carTimeUs);
+	bool leftValid  = !result.left.foul  && !result.left.dnf;
+	bool rightValid = !result.right.foul && !result.right.dnf;
+	result.left.winner  = leftValid  && (!rightValid || result.left.carTimeUs  < result.right.carTimeUs);
+	result.right.winner = rightValid && (!leftValid  || result.right.carTimeUs < result.left.carTimeUs);
 }
 
 static void displayCarTimes() {
-	if (heatResult.left.foul)  clearDisplay(LANE_LEFT);
+	if (heatResult.left.foul  || heatResult.left.dnf)  clearDisplay(LANE_LEFT);
 	else updateDisplay(heatResult.left.carTimeUs, LANE_LEFT);
 
-	if (heatResult.right.foul) clearDisplay(LANE_RIGHT);
+	if (heatResult.right.foul || heatResult.right.dnf) clearDisplay(LANE_RIGHT);
 	else updateDisplay(heatResult.right.carTimeUs, LANE_RIGHT);
 }
 
 static void displayReactionTimes() {
-	if (heatResult.left.foul)  clearDisplay(LANE_LEFT);
+	if (heatResult.left.foul  || heatResult.left.dnf)  clearDisplay(LANE_LEFT);
 	else updateDisplay(heatResult.left.reactionTimeUs, LANE_LEFT);
 
-	if (heatResult.right.foul) clearDisplay(LANE_RIGHT);
+	if (heatResult.right.foul || heatResult.right.dnf) clearDisplay(LANE_RIGHT);
 	else updateDisplay(heatResult.right.reactionTimeUs, LANE_RIGHT);
 }
 
