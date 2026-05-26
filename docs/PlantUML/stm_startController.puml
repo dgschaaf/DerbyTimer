@@ -134,11 +134,12 @@ end note
 ' COMPLETE
 ' ============================================================
 state "COMPLETE" as COMPLETE {
-  COMPLETE : entry / rx.LeftWin = rx.RightWin = rx.Tie = false
-  COMPLETE : entry / winLightsPend = true
-  COMPLETE : entry / blinkState.active = false
+  COMPLETE : entry / winLightsPend = true, winLightTimer = millis()
+  COMPLETE : entry / cancelBlink()
   COMPLETE : do / handleDisplayAdvance()
-  COMPLETE : do / when MSG_WINNER rx: startBlink(winner pattern), winLightsPend = false
+  COMPLETE : do / updateBlink()
+  COMPLETE : do / if winLightsPend AND (rx.WinnerReceived OR 2 s timeout):
+  COMPLETE : do /   startBlink(winner pattern), winLightsPend = false
   COMPLETE : do / if !winLightsPend AND !updateBlink() then stm.rxTransition(rx.State)
 }
 
@@ -147,6 +148,9 @@ note right of COMPLETE
   . Left wins:  startBlink(GO|FR, FR, 3x, 250ms, GO|FR)
   . Right wins: startBlink(GO|FL, FL, 3x, 250ms, GO|FL)
   . Tie:        startBlink(GO, OFF, 3x, 250ms, GO)
+  . No result (double-foul/DNF): no blink, winLightsPend cleared
+  winLightsPend held until rx.WinnerReceived flag is set by
+  MSG_WINNER handler, or 2-second fallback timeout expires.
   Return to IDLE is driven by finishController
   sending MSG_RACE_STATE(IDLE).
 end note
@@ -168,9 +172,11 @@ IDLE      --> TESTING   : MSG_RACE_STATE(TEST)
 STAGING   --> COUNTDOWN : Button_Start\n[MSG_RACE_STATE(COUNTDOWN) TX_ACKED]
 STAGING   --> IDLE      : Button_Mode\n[MSG_RACE_STATE(IDLE) TX_ACKED]
 
-COUNTDOWN --> RACING    : cdState == CD_GO\n[MSG_RACE_START sent]
+COUNTDOWN --> RACING    : cdState == CD_GO\n[MSG_RACE_STATE(RACING) TX_ACKED]
+COUNTDOWN --> IDLE      : MSG_RACE_START TX_TIMEOUT/TX_FAILED\n[stm.forceIdle()]
 
 RACING    --> COMPLETE  : MSG_RACE_STATE(COMPLETE)\n[after all PendingMsgs drained]
+RACING    --> IDLE      : MSG_RACE_START or MSG_FOUL TX_TIMEOUT/TX_FAILED\n[stm.forceIdle()]
 
 COMPLETE  --> IDLE      : MSG_RACE_STATE(IDLE)\n[sent by finishController]
 
