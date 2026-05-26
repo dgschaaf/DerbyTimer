@@ -98,9 +98,11 @@ bool rxSerial() {
 		case MSG_WINNER: {
 			if (Serial.available() >= 1) {
 				uint8_t winnerMask = Serial.read();
-				rx.LeftWin  = winnerMask & 0b0001;
-				rx.RightWin = winnerMask & 0b0010;
-				rx.Tie      = winnerMask & 0b0100;
+				rx.LeftWin        = winnerMask & 0b0001;
+				rx.RightWin       = winnerMask & 0b0010;
+				rx.Tie            = winnerMask & 0b0100;
+				rx.NoResult       = winnerMask & 0b1000;
+				rx.WinnerReceived = true;
 				txAck(rx.ID);
 			}
 			break;

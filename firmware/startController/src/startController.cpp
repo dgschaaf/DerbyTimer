@@ -173,7 +173,8 @@ static CountDownCtx cd;
 // racing
 static PendingTx pending;
 // results
-static bool winLightsPend				= false;		// marker if result lights need to display
+static bool          winLightsPend  = false;   // true until winner data received or timed out
+static unsigned long winLightTimer  = 0;        // millis() timestamp when RACE_COMPLETE was entered
 
 // error
 static bool criticalTxError				= false;		// set on permanent failure of a critical message
@@ -335,23 +336,28 @@ void startControllerLoop(){
 			
 		case RACE_COMPLETE:
 			if(stm.entry){
-				stm.entry				= false;
-				winLightsPend			= true;
+				stm.entry      = false;
+				winLightsPend  = true;
+				winLightTimer  = millis();
 				cancelBlink();
 			}
 
 			handleDisplayAdvance();
-			
-			if (winLightsPend){ 
-				// Determine win light pattern to show winner and start blink
-				if(rx.LeftWin)	startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
-				if(rx.RightWin)	startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
-				if(rx.Tie) 		startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
-				winLightsPend 			= false;
-			}			
-				
-			if (!winLightsPend && !updateBlink()){				// note: this also executes the updateBlink() function to process blinks
-				stm.rxTransition((raceState)rx.State); // wait until all pending messages have been sent until completing transition
+
+			if (winLightsPend) {
+				// Hold until MSG_WINNER arrives from FC, or fall through after ~2s if it never does.
+				bool timedOut = ((unsigned long)(millis() - winLightTimer) >= 2000UL);
+				if (rx.WinnerReceived || timedOut) {
+					if (rx.LeftWin)  startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
+					if (rx.RightWin) startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
+					if (rx.Tie)      startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
+					// rx.NoResult (double-foul): no win lights, just clear pend
+					winLightsPend = false;
+				}
+			}
+
+			if (!winLightsPend && !updateBlink()) {   // updateBlink() drives the animation each loop
+				stm.rxTransition((raceState)rx.State);
 			}
 
 			if(stm.exit){

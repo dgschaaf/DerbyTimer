@@ -82,6 +82,8 @@ struct SerialRxState {
 	bool    LeftWin             = false;
 	bool    RightWin            = false;
 	bool    Tie                 = false;
+	bool    NoResult            = false;   // double-foul / no result (winner_noResult)
+	bool    WinnerReceived      = false;   // set when any MSG_WINNER lands, cleared at race start
 	bool    DisplayAdvanceFlag  = false;
 	bool    LeftReactionValid   = false;
 	bool    RightReactionValid  = false;
@@ -97,6 +99,8 @@ struct SerialRxState {
 		LeftWin            = false;
 		RightWin           = false;
 		Tie                = false;
+		NoResult           = false;
+		WinnerReceived     = false;
 		DisplayAdvanceFlag = false;
 		LeftReactionValid  = false;
 		RightReactionValid = false;
