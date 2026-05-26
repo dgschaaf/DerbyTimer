@@ -133,6 +133,7 @@ bool rxSerial() {
 		case MSG_ERROR: {
 			if (Serial.available() >= 1) {
 				rx.lastErrorCode = (errCode)Serial.read();
+				txAck(rx.ID);
 			}
 			break;
 		}
