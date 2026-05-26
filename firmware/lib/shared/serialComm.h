@@ -9,6 +9,7 @@
 #define winner_leftWin  0b0001
 #define winner_rightWin 0b0010
 #define winner_tie      0b0100
+#define winner_noResult 0b1000
 // Start event codes (used in MSG_RACE_START payload)
 #define start_race      0b0001
 #define start_left      0b0010

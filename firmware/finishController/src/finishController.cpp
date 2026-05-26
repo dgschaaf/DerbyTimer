@@ -39,7 +39,6 @@ struct TimingInputs {
 
 struct PendingTx {
 	bool winner = false;
-
 	bool anyPending() const { return winner; }
 	void queue(serialMsgID id);
 	void checkOutcomes();
@@ -47,6 +46,7 @@ struct PendingTx {
 
 static bool needReact			= false;
 static PendingTx pending;
+static uint8_t winnerMask		= 0;
 static bool criticalTxError		= false;		// reserved for future critical messages
 
 static HeatResults    heatResult	= {};
@@ -194,6 +194,14 @@ void finishControllerLoop() {
 				needReact				= (currentMode == MODE_REACTION || currentMode == MODE_PRO);
 				computeHeatResults(heatResult, timingInputs);
 				displayCarTimes();
+				winnerMask = 0;
+				if (heatResult.left.foul && heatResult.right.foul) {
+					winnerMask = winner_noResult;
+				} else {
+					if (heatResult.left.winner)  winnerMask |= winner_leftWin;
+					if (heatResult.right.winner) winnerMask |= winner_rightWin;
+					if (!heatResult.left.winner && !heatResult.right.winner) winnerMask |= winner_tie;
+				}
 				pending.queue(MSG_WINNER);
 				stm.entry				= false;
 			}
@@ -337,12 +345,12 @@ static void displayReactionTimes() {
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
 void PendingTx::queue(serialMsgID id) {
-	if (id == MSG_WINNER) {
-		uint8_t winnerMask = 0;
-		if (heatResult.left.winner)  winnerMask |= winner_leftWin;
-		if (heatResult.right.winner) winnerMask |= winner_rightWin;
-		if (!heatResult.left.winner && !heatResult.right.winner) winnerMask |= winner_tie;
-		if (txWinner(winnerMask)) winner = true;
+	switch(id) {
+		case MSG_WINNER:
+			if (txWinner(winnerMask)) winner = true;
+			break;
+		default:
+			break;
 	}
 }
 
