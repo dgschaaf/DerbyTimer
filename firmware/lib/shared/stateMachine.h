@@ -28,12 +28,14 @@ struct stateMachine {
 
 	bool allowedTransition(raceState next) {
 		// Allowed transitions table (FROM x TO)
+		// →IDLE column: STAGING→IDLE is the normal operator-abort path;
+		// COUNTDOWN→IDLE and RACING→IDLE are emergency abort paths.
 		static constexpr bool allowed[6][6] = {
 		/* FROM\TO:  IDLE STAG CNTD RACE CMPL TEST */
 		/*IDLE*/     {0,   1,   0,   0,   0,   1},
-		/*STAGING*/  {0,   0,   1,   0,   0,   0},
-		/*COUNTDOWN*/{0,   0,   0,   1,   0,   0},
-		/*RACING*/   {0,   0,   0,   0,   1,   0},
+		/*STAGING*/  {1,   0,   1,   0,   0,   0},
+		/*COUNTDOWN*/{1,   0,   0,   1,   0,   0},
+		/*RACING*/   {1,   0,   0,   0,   1,   0},
 		/*COMPLETE*/ {1,   0,   0,   0,   0,   0},
 		/*TEST*/     {1,   0,   0,   0,   0,   0}
 		};
@@ -91,6 +93,19 @@ struct stateMachine {
 		current = newState;
 		entry   = true;
 		exit    = true;
+	}
+
+	void forceIdle() {
+		// Abort path: resets local state to IDLE immediately without waiting
+		// for an ACK. Fires a best-effort MSG_RACE_STATE(IDLE) so the other
+		// controller can follow; if that message is lost, the other controller
+		// recovers via its own timeout paths.
+		if (current == RACE_IDLE) return;
+		current = RACE_IDLE;
+		target  = RACE_IDLE;
+		entry   = true;
+		exit    = false;
+		txRaceState((uint8_t)RACE_IDLE);
 	}
 };
 

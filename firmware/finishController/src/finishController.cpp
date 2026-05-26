@@ -96,8 +96,9 @@ void finishControllerLoop() {
      */
 	rxSerial();
 
-	if (rx.lastErrorCode != err_NULL && !criticalTxError) {
-		criticalTxError = true;
+	if (rx.lastErrorCode != err_NULL) {
+		rx.lastErrorCode = err_NULL;
+		stm.forceIdle();
 	}
 
 	if (criticalTxError) {
@@ -121,8 +122,9 @@ void finishControllerLoop() {
 	switch(stm.current) {
 		case RACE_IDLE:
 			if(stm.entry){
-				stm.entry 			= false;
+				stm.entry = false;
 				rx.clearHeatEvents();
+				disarmSensors();
 				clearDisplay(LANE_LEFT);
 				clearDisplay(LANE_RIGHT);
 			}
@@ -156,9 +158,9 @@ void finishControllerLoop() {
 				countdownEntryMs     = millis();
 			}
 
-			// If SC goes completely silent, give up after maxRaceTimeUs and require restart.
+			// SC went silent — sensors never armed, heat is unrecoverable. Abort to IDLE.
 			if ((millis() - countdownEntryMs) > 10000UL) {
-				criticalTxError = true;
+				stm.forceIdle();
 				break;
 			}
 

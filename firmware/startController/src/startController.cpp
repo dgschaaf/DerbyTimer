@@ -499,29 +499,34 @@ void PendingTx::checkOutcomes() {
 		if (s == TX_ACKED) {
 			raceStart = false;
 		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
-			raceStart        = false;
-			pendingErrorCode = err_START_TX_TIMEOUT;
-			criticalTxError  = true;   // FC sensors may not be armed
+			// FC sensors may not be armed — heat is unrecoverable. Abort to IDLE.
+			raceStart = false;
+			txError(err_START_TX_TIMEOUT);
+			stm.forceIdle();
 		}
 	}
 	if (foulStatus) {
 		txStatus s = txStatusOf(MSG_FOUL);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
+			if (s != TX_ACKED) {
+				// Foul data lost — result cannot be trusted. Abort to IDLE.
+				txError(err_STATE_TX_TIMEOUT);
+				stm.forceIdle();
+			}
 			foulStatus = false;
 		}
 	}
 	if (leftReact) {
 		txStatus s = txStatusOf(MSG_LEFT_REACT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
+			// Soft fail: reaction time is record-keeping only in REACTION/PRO mode.
+			// FC already warned via P1-8 guard; continue without halting.
 			leftReact = false;
 		}
 	}
 	if (rightReact) {
 		txStatus s = txStatusOf(MSG_RIGHT_REACT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) { pendingErrorCode = err_STATE_TX_TIMEOUT; criticalTxError = true; }
 			rightReact = false;
 		}
 	}
