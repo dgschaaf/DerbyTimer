@@ -18,6 +18,8 @@ Dependencies:
   pip install pyserial
 """
 
+import os
+import re
 import sys
 import time
 import struct
@@ -27,71 +29,120 @@ import queue
 import serial  # pip install pyserial
 
 # ---------------------------------------------------------------------------
-# Protocol constants -- must match serialComm.h
+# Protocol constants -- parsed from serialComm.h and raceTypes.h at startup.
+# To add a message: update serialComm.h (authoritative), then add its payload
+# length to _PAYLOAD_BY_NAME below and getExpectedPayloadLength() in serialComm.cpp.
 # ---------------------------------------------------------------------------
 
-MSG = {
-    "NULL":         0x00,
-    "ACK":          0x01,
-    "NACK":         0x02,
-    "RACE_MODE":    0x03,
-    "RACE_STATE":   0x04,
-    "RACE_START":   0x05,
-    "ERROR":        0x06,
-    "LEFT_REACT":   0x07,
-    "RIGHT_REACT":  0x08,
-    "FOUL":         0x09,
-    "WINNER":       0x0A,
-    "DISP_ADVANCE": 0x0B,
-}
-MSG_COUNT = 0x0C
+_SHARED_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'firmware', 'lib', 'shared')
+)
 
-MSG_NAME = {v: k for k, v in MSG.items()}
+def _load_protocol():
+    def read(name):
+        path = os.path.join(_SHARED_DIR, name)
+        try:
+            with open(path, encoding='utf-8') as f:
+                return f.read()
+        except OSError as e:
+            print(f'[ERROR] Cannot read {path}: {e}')
+            sys.exit(1)
 
-PAYLOAD_LEN = {
-    MSG["NULL"]:         0,
-    MSG["ACK"]:          1,
-    MSG["NACK"]:         1,
-    MSG["RACE_MODE"]:    1,
-    MSG["RACE_STATE"]:   1,
-    MSG["RACE_START"]:   1,
-    MSG["ERROR"]:        1,
-    MSG["LEFT_REACT"]:   4,
-    MSG["RIGHT_REACT"]:  4,
-    MSG["FOUL"]:         1,
-    MSG["WINNER"]:       1,
-    MSG["DISP_ADVANCE"]: 0,
-}
+    def parse_enum(text, type_name):
+        """Return {entry_name: int_value} for a sequential C enum."""
+        text = re.sub(r'//[^\n]*', '', text)  # strip // comments
+        m = re.search(
+            rf'enum\s+{re.escape(type_name)}\s*(?::\s*\w+\s*)?\{{([^}}]*)\}}',
+            text, re.DOTALL
+        )
+        if not m:
+            print(f'[ERROR] Could not find enum {type_name} in firmware headers')
+            sys.exit(1)
+        result, val = {}, 0
+        for token in re.split(r'[,\n]+', m.group(1)):
+            token = token.strip()
+            if not token:
+                continue
+            if '=' in token:
+                name, _, rhs = token.partition('=')
+                name = name.strip()
+                try:
+                    val = int(rhs.strip(), 0)
+                except ValueError:
+                    continue
+            else:
+                name = token
+            if re.fullmatch(r'[A-Za-z_]\w*', name):
+                result[name] = val
+                val += 1
+        return result
 
-# Race state values
-STATE = {"IDLE": 0, "STAGING": 1, "COUNTDOWN": 2, "RACING": 3, "COMPLETE": 4, "TEST": 5}
-STATE_NAME = {v: k for k, v in STATE.items()}
+    def parse_defines(text, *prefixes):
+        """Return {name: int_value} for #define lines whose names start with any prefix."""
+        result = {}
+        for m in re.finditer(r'#define\s+(\w+)\s+(0b[01]+|0x[0-9a-fA-F]+|\d+)', text):
+            name, raw = m.group(1), m.group(2)
+            if not prefixes or any(name.startswith(p) for p in prefixes):
+                result[name] = int(raw, 0)
+        return result
 
-# Race mode values
-MODE = {"GATEDROP": 0, "REACTION": 1, "PRO": 2, "DIALIIN": 3}
-MODE_NAME = {v: k for k, v in MODE.items()}
+    comm  = read('serialComm.h')
+    types = read('raceTypes.h')
 
-# Foul bitmasks
-FOUL_LEFT  = 0b0001
-FOUL_RIGHT = 0b0010
-FOUL_BOTH  = 0b0011
+    # Message IDs: strip MSG_ prefix, drop MSG_COUNT sentinel.
+    msg_enum  = parse_enum(comm, 'serialMsgID')
+    MSG       = {k[4:]: v for k, v in msg_enum.items() if k.startswith('MSG_') and k != 'MSG_COUNT'}
+    MSG_COUNT = msg_enum['MSG_COUNT']
+    MSG_NAME  = {v: k for k, v in MSG.items()}
 
-# Winner bitmasks
-WIN_LEFT  = 0b0001
-WIN_RIGHT = 0b0010
-WIN_TIE   = 0b0100
-WIN_NONE  = 0b1000
+    # Payload lengths keyed by name (survives ID reshuffles).
+    # Must mirror getExpectedPayloadLength() in serialComm.cpp.
+    _PAYLOAD_BY_NAME = {
+        'NULL': 0, 'ACK': 1, 'NACK': 1, 'RACE_MODE': 1, 'RACE_STATE': 1,
+        'RACE_START': 1, 'ERROR': 1, 'LEFT_REACT': 4, 'RIGHT_REACT': 4,
+        'FOUL': 1, 'WINNER': 1, 'DISP_ADVANCE': 0,
+    }
+    for name in MSG:
+        if name not in _PAYLOAD_BY_NAME:
+            print(f'[WARN] No payload length for MSG_{name} -- defaulting to 0. '
+                  f'Add it to _PAYLOAD_BY_NAME in uart_monitor.py and to '
+                  f'getExpectedPayloadLength() in serialComm.cpp.')
+    PAYLOAD_LEN = {MSG[n]: l for n, l in _PAYLOAD_BY_NAME.items() if n in MSG}
 
-# Error codes
-ERR_NAME = {
-    0: "err_NULL",
-    1: "err_STATE_TX_TIMEOUT",
-    2: "err_MODE_TX_TIMEOUT",
-    3: "err_START_TX_TIMEOUT",
-    4: "err_SERIAL_OVERFLOW",
-    5: "err_INVALID_MSG",
-    6: "err_STATE_MISMATCH",
-}
+    # Race states: strip RACE_ prefix.
+    state_enum = parse_enum(types, 'raceState')
+    STATE      = {k[5:]: v for k, v in state_enum.items() if k.startswith('RACE_')}
+    STATE_NAME = {v: k for k, v in STATE.items()}
+
+    # Race modes: strip MODE_ prefix, drop MODE_COUNT sentinel.
+    mode_enum  = parse_enum(types, 'raceMode')
+    MODE       = {k[5:]: v for k, v in mode_enum.items()
+                  if k.startswith('MODE_') and k != 'MODE_COUNT'}
+    MODE_NAME  = {v: k for k, v in MODE.items()}
+
+    # Error codes (reverse map: int -> name).
+    err_enum = parse_enum(comm, 'errCode')
+    ERR_NAME = {v: k for k, v in err_enum.items() if k != 'err_Count'}
+
+    # Bitmasks.
+    defs       = parse_defines(comm, 'winner_', 'foul_')
+    FOUL_LEFT  = defs['foul_left']
+    FOUL_RIGHT = defs['foul_right']
+    FOUL_BOTH  = defs['foul_both']
+    WIN_LEFT   = defs['winner_leftWin']
+    WIN_RIGHT  = defs['winner_rightWin']
+    WIN_TIE    = defs['winner_tie']
+    WIN_NONE   = defs['winner_noResult']
+
+    return (MSG, MSG_COUNT, MSG_NAME, PAYLOAD_LEN,
+            STATE, STATE_NAME, MODE, MODE_NAME, ERR_NAME,
+            FOUL_LEFT, FOUL_RIGHT, FOUL_BOTH,
+            WIN_LEFT, WIN_RIGHT, WIN_TIE, WIN_NONE)
+
+(MSG, MSG_COUNT, MSG_NAME, PAYLOAD_LEN,
+ STATE, STATE_NAME, MODE, MODE_NAME, ERR_NAME,
+ FOUL_LEFT, FOUL_RIGHT, FOUL_BOTH,
+ WIN_LEFT, WIN_RIGHT, WIN_TIE, WIN_NONE) = _load_protocol()
 
 # ---------------------------------------------------------------------------
 # Payload formatting helpers

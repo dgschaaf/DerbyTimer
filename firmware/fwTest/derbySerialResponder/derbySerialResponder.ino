@@ -9,7 +9,7 @@
  *   GND                         GND
  *
  * Compile:
- *   arduino-cli compile --fqbn arduino:avr:nano firmware/fwTest/derbySerialResponder.ino
+ *   arduino-cli compile --fqbn arduino:avr:nano firmware/fwTest/derbySerialResponder/derbySerialResponder.ino
  *
  * Default behavior: ACK every valid message received.
  *
@@ -27,7 +27,11 @@
 #include <Arduino.h>
 
 // ==================== PROTOCOL CONSTANTS ====================
-// Must match serialComm.h serialMsgID enum values exactly.
+// The responder intentionally does NOT include serialComm.h -- it is a
+// bare-metal parser so it can ACK, NACK, or stay silent independently of
+// the production code. Keep the two tables below in sync manually:
+//   ID values  -> serialMsgID enum in serialComm.h
+//   payloadLen -> getExpectedPayloadLength() in serialComm.cpp
 enum MsgID : uint8_t {
     ID_NULL,         // 0
     ID_ACK,          // 1

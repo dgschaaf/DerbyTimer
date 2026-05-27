@@ -17,29 +17,6 @@
 #include "sensors.h"
 #include "debug.h"
 
-struct LaneResult {
-	bool		foul;
-	bool		dnf;
-	bool		winner;
-	uint32_t	raceTimeUs;
-	uint32_t	reactionTimeUs;
-	uint32_t	carTimeUs;
-};
-
-struct HeatResults {
-	LaneResult left;
-	LaneResult right;
-};
-
-struct TimingInputs {
-	uint32_t startUs;
-	uint32_t leftTimeUs;
-	uint32_t rightTimeUs;
-	bool     leftRecorded;
-	bool     rightRecorded;
-	bool     leftDnf;
-	bool     rightDnf;
-};
 
 struct PendingTx {
 	bool    winner         = false;
@@ -94,7 +71,6 @@ static raceMode currentMode;
 // Internal helpers (file-local)
 static void handleSensors();
 static void handleRxReaction();
-static void computeHeatResults(HeatResults& result, const TimingInputs& timing);
 static void displayCarTimes();
 static void displayReactionTimes();
 
@@ -534,28 +510,6 @@ void handleRxReaction() {
 /* =========================================================================
  *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
-static void computeHeatResults(HeatResults& result, const TimingInputs& timing) {
-	// foul and reactionTimeUs already populated by handleRxReaction() during RACING
-	result.left.dnf         = timing.leftDnf;
-	result.right.dnf        = timing.rightDnf;
-	result.left.raceTimeUs  = timing.leftTimeUs;
-	result.right.raceTimeUs = timing.rightTimeUs;
-
-	// No foul: carTime = raceTime - reactionTime (gate-drop to finish)
-	// Foul:    carTime = raceTime + reactionTime (gate dropped before GO, so car was rolling longer)
-	// DNF:     carTime is computed but meaningless -- winner logic uses dnf flag, display blanks it
-	result.left.carTimeUs  = result.left.foul
-	                       ? timing.leftTimeUs  + result.left.reactionTimeUs
-	                       : timing.leftTimeUs  - result.left.reactionTimeUs;
-	result.right.carTimeUs = result.right.foul
-	                       ? timing.rightTimeUs + result.right.reactionTimeUs
-	                       : timing.rightTimeUs - result.right.reactionTimeUs;
-
-	bool leftValid  = !result.left.foul  && !result.left.dnf;
-	bool rightValid = !result.right.foul && !result.right.dnf;
-	result.left.winner  = leftValid  && (!rightValid || result.left.carTimeUs  < result.right.carTimeUs);
-	result.right.winner = rightValid && (!leftValid  || result.right.carTimeUs < result.left.carTimeUs);
-}
 
 static void displayCarTimes() {
 	if (heatResult.left.foul  || heatResult.left.dnf)  clearDisplay(LANE_LEFT);
