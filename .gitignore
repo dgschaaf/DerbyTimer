@@ -20,8 +20,6 @@ Thumbs.db
 # Claude & workflow artifacts
 CLAUDE.md
 .claude/
-docs/superpowers/
-nudges/
 
 # KiCad backups/cache (keep source .kicad_* files!)
 *-backups/

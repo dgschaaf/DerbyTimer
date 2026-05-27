@@ -135,13 +135,15 @@ KiCad schematics and PCB layouts are in `hardware/startBoard/` and `hardware/fin
 
 ## Testing
 
+> Full layer map, directory guide, and run instructions: [docs/testing.md](docs/testing.md)
+
 ### L1 — Static Analysis
 
 `--warnings all` is included in the VS Code build tasks. `cppcheck` is in `.vscode/extensions.json` recommendations. Catches uninitialized variables, missing `switch` defaults, and signed/unsigned mismatches at compile time.
 
 ### L2 — Desktop Unit Tests (`test/native/`)
 
-PlatformIO native environment (`pio test -e native`). Framework and stub files are in place. Activate by installing the PlatformIO VS Code extension and running `pio pkg install` (see P2-35 in `.claude/project-status.md`).
+PlatformIO native environment (`pio test -e native`). Tests and stubs live in `firmware/test/`. Activate by installing the PlatformIO VS Code extension and running `pio pkg install` (see P2-35 in `.claude/project-status.md`).
 
 ### L3a — Serial Protocol Tests (`firmware/fwTest/`)
 
@@ -149,7 +151,7 @@ Upload `derbySerialTester.ino` to one Nano and `derbySerialResponder.ino` to a s
 
 ### L3b — Laptop UART Monitor (`tools/uart_monitor.py`)
 
-`python tools/uart_monitor.py <COMx>` — four modes: passive monitor (log all messages), SC simulator (scripted state walk), FC simulator (auto-ACK + send winner on keypress), protocol injector (interactive menu). Requires `pip install pyserial`.
+`python firmware/tools/uart_monitor.py <COMx>` — four modes: passive monitor (log all messages), SC simulator (scripted state walk), FC simulator (auto-ACK + send winner on keypress), protocol injector (interactive menu). Requires `pip install pyserial`.
 
 ### L4 — RACE_TEST Self-Test (built-in)
 
