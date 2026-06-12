@@ -6,11 +6,12 @@
 //   arduino-cli ... --build-property "build.extra_flags=-DDERBY_DEBUG"
 //   (See "Compile SC Debug" / "Compile FC Debug" tasks in .vscode/tasks.json)
 //
-// CONSTRAINT: On ATmega328P (SC) and nRF52840 (FC), Serial is shared with the
-//   FC<->SC wire protocol. Do not use the debug build with both controllers
-//   connected -- the debug text will corrupt the UART protocol stream.
-//   Use one controller at a time on the bench, or use tools/uart_monitor.py
-//   (L3b) to observe the live protocol without corrupting it.
+// CONSTRAINT: On the SC (ATmega328P, single UART) Serial is shared with the
+//   FC<->SC wire protocol -- do not run an SC debug build with the FC
+//   connected, the debug text corrupts the protocol stream. The FC is safe:
+//   its protocol runs on Serial1 (P2-37), so DERBY_DEBUG output on USB Serial
+//   coexists with live racing. For SC-side protocol observation use
+//   tools/uart_monitor.py (L3b).
 //
 // ZERO OVERHEAD: When DERBY_DEBUG is not defined, all macros expand to
 //   no-ops -- no RAM, no flash, no runtime cost in the production build.

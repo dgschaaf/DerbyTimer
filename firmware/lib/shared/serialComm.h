@@ -10,11 +10,6 @@
 #define winner_rightWin 0b0010
 #define winner_tie      0b0100
 #define winner_noResult 0b1000
-// Start event codes (used in MSG_RACE_START payload)
-#define start_race      0b0001
-#define start_left      0b0010
-#define start_right     0b0100
-#define start_all       0b0111
 // Foul event codes (used in MSG_FOUL payload)
 #define foul_left       0b0001
 #define foul_right      0b0010
@@ -72,11 +67,16 @@ struct SerialRxState {
 	serialMsgID lastNackedMsgID = MSG_NULL;  // last not acknowledged message ID
 	uint8_t     Mode            = 0;         // last received race mode (MODE_GATEDROP -- cast to raceMode)
 	uint8_t     State           = 0;         // last received race state (RACE_IDLE -- cast to raceState)
-	errCode     lastErrorCode   = err_NULL;  // last received error code
+	bool        StateChanged    = false;     // set when MSG_RACE_STATE arrives; consumed once by stateMachine::serviceRx().
+	                                         // rx.State alone is level-triggered (holds its value forever) -- feeding it
+	                                         // to rxTransition() directly re-fires stale transitions (e.g. RACING->IDLE
+	                                         // mid-heat from the previous heat's IDLE). Never bypass the flag.
+	errCode     lastErrorCode   = err_NULL;  // last received error code (MSG_ERROR from the peer -- FC treats any
+	                                         // value here as a critical abort signal, see ADR-0004)
+	errCode     lastLocalError  = err_NULL;  // last locally detected RX parse problem (unknown ID, stale partial,
+	                                         // out-of-range payload). Diagnostic only -- must never trigger aborts.
 
 	bool    RaceStart           = false;
-	bool    LeftStart           = false;
-	bool    RightStart          = false;
 	bool    LeftFoul            = false;
 	bool    RightFoul           = false;
 	bool    LeftWin             = false;
@@ -92,8 +92,6 @@ struct SerialRxState {
 
 	void clearHeatEvents() {
 		RaceStart          = false;
-		LeftStart          = false;
-		RightStart         = false;
 		LeftFoul           = false;
 		RightFoul          = false;
 		LeftWin            = false;
@@ -111,14 +109,21 @@ struct SerialRxState {
 extern SerialRxState rx;
 
 // -------------------- Public API --------------------
+constexpr unsigned long serialBaud = 115200;
+
+// SC: protocol runs on the primary UART (Serial) -- begin() handled inside.
 void setupSerial();
+// FC: protocol runs on a caller-initialized port (e.g. Serial1 on the Nano 33
+// BLE, freeing USB Serial for debug output). Call port.begin(serialBaud) first.
+// Stream comes from Arduino.h (or the native test mock) -- include it first.
+void setupSerialBus(Stream& port);
 bool rxSerial();
 
 // Enqueue outgoing messages -- returns true if newly enqueued, false if already in flight or queued.
 // Callers enqueue once and move on; query outcome with txStatusOf().
 bool txRaceMode(uint8_t newMode);
 bool txRaceState(uint8_t newState);
-bool txRaceStart(uint8_t start);                         // priority -- jumps to front of queue
+bool txRaceStart();                                      // zero payload; priority -- jumps to front of queue
 bool txReactionTime(uint32_t reactionTime, Lane lane);
 bool txFoulStatus(uint8_t foul);
 bool txWinner(uint8_t winner);
@@ -141,5 +146,10 @@ uint8_t getExpectedPayloadLength(serialMsgID id);
 
 // TX timing
 constexpr uint16_t txTimeout = 50;  // milliseconds to wait for ACK before TX_TIMEOUT
+
+// RX validation
+constexpr uint16_t stalePartialTimeoutMs = 100;        // flush a partial message whose payload never arrives
+constexpr uint32_t maxValidReactionUs    = 10000000UL; // plausibility bound for received reaction times
+                                                       // (matches FC sensors config.maxRaceTimeUs)
 
 #endif  // serialComm_H

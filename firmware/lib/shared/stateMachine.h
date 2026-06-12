@@ -81,6 +81,19 @@ struct stateMachine {
 		}
 	}
 
+	// Consume a freshly received MSG_RACE_STATE, if any. rx.State is
+	// level-triggered (it holds the last received value forever), so a stale
+	// value fed straight to rxTransition() re-fires old transitions -- e.g.
+	// the previous heat's IDLE aborting the current heat from RACING. The
+	// StateChanged flag makes the message edge-triggered: rxSerial() sets it,
+	// this method consumes it exactly once. Call this instead of passing
+	// rx.State to rxTransition() directly.
+	void serviceRx() {
+		if (!rx.StateChanged) return;
+		rx.StateChanged = false;
+		rxTransition((raceState)rx.State);
+	}
+
 	void rxTransition(raceState newState) {
 		if (current == newState) {
 			return;

@@ -3,10 +3,15 @@
 #include "serialComm.h"
 
 SerialRxState rx;
-static const uint8_t maxRetries = 3;
+static const uint8_t maxRetries = 3;   // retries after the initial send -- 4 transmission attempts total
+                                       // (txDrive compares retries > maxRetries after incrementing per send)
 
 // ---------------------------------------------------------------
-// TX tracker: one slot per message ID, holds status + captured payload
+// TX tracker: one slot per message ID in txState[], holding the message's
+// lifecycle status (TX_NONE -> TX_SENT -> ACKED/NACKED/TIMEOUT/FAILED) plus
+// a payload copy captured at enqueue time, so the wire always carries the
+// value current when the event happened. txDrive() walks the front of
+// txQueue[] through this state machine; one message in flight at a time.
 // ---------------------------------------------------------------
 struct TxTracker {
 	txStatus      status;
@@ -23,58 +28,96 @@ static uint8_t     txQueueLen = 0;
 // ---------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------
+// All protocol I/O goes through `bus` so each controller can pick its port:
+// SC uses Serial (only UART on the ATmega328P); FC uses Serial1 (hardware
+// UART on D0/D1), keeping USB Serial free for debug output (P2-37).
+static Stream* bus = &Serial;
+
 void setupSerial() {
-	Serial.begin(115200);
+	Serial.begin(serialBaud);
+	bus = &Serial;
+}
+
+void setupSerialBus(Stream& port) {
+	bus = &port;
 }
 
 // ---------------------------------------------------------------
 // RX
 // ---------------------------------------------------------------
 bool rxSerial() {
-	if (Serial.available() < 1) return false;
+	// Stale-partial tracker: a peeked ID whose payload never arrives (tail
+	// lost on the wire) would block the head of the stream forever.
+	static serialMsgID   stalledID    = MSG_COUNT;   // MSG_COUNT = no stall in progress
+	static unsigned long stalledSince = 0;
 
-	serialMsgID id = (serialMsgID)Serial.peek();
-	uint8_t expectedLen = getExpectedPayloadLength(id);
-	uint8_t available   = Serial.available();
-
-	if (id >= MSG_COUNT) {
-		Serial.read();
+	if (bus->available() < 1) {
+		stalledID = MSG_COUNT;
 		return false;
 	}
-	if (available < (1 + expectedLen)) return false;
 
-	rx.ID = (serialMsgID)Serial.read();
+	serialMsgID id = (serialMsgID)bus->peek();
+	uint8_t expectedLen = getExpectedPayloadLength(id);
+	uint8_t available   = bus->available();
+
+	if (id >= MSG_COUNT) {
+		bus->read();
+		rx.lastLocalError = err_INVALID_MSG;
+		stalledID = MSG_COUNT;
+		return false;
+	}
+	if (available < (1 + expectedLen)) {
+		// Payload not all here yet. Normal case: it completes within a few ms.
+		// If it stalls past stalePartialTimeoutMs, drop the ID byte and NACK so
+		// the sender's retry can resync the stream.
+		if (stalledID != id) {
+			stalledID    = id;
+			stalledSince = millis();
+		} else if (millis() - stalledSince >= stalePartialTimeoutMs) {
+			bus->read();
+			txNack(id);
+			rx.lastLocalError = err_INVALID_MSG;
+			stalledID = MSG_COUNT;
+		}
+		return false;
+	}
+	stalledID = MSG_COUNT;
+
+	rx.ID = (serialMsgID)bus->read();
 
 	switch (rx.ID) {
 		case MSG_RACE_MODE: {
-			if (Serial.available() >= 1) {
-				rx.Mode = Serial.read();
+			if (bus->available() >= 1) {
+				rx.Mode = bus->read();
 				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_RACE_STATE: {
-			if (Serial.available() >= 1) {
-				rx.State = Serial.read();
+			if (bus->available() >= 1) {
+				rx.State        = bus->read();
+				rx.StateChanged = true;
 				txAck(rx.ID);
 			}
 			break;
 		}
 		case MSG_RACE_START: {
-			if (Serial.available() >= 1) {
-				uint8_t startMask = Serial.read();
-				rx.RaceStart  = startMask & 0b0001;
-				rx.LeftStart  = startMask & 0b0010;
-				rx.RightStart = startMask & 0b0100;
-				txAck(rx.ID);
-			}
+			rx.RaceStart = true;
+			txAck(rx.ID);
 			break;
 		}
 		case MSG_LEFT_REACT:
 		case MSG_RIGHT_REACT: {
-			if (Serial.available() >= sizeof(uint32_t)) {
+			if (bus->available() >= (int)sizeof(uint32_t)) {
 				int32_t reaction;
-				Serial.readBytes((uint8_t*)&reaction, sizeof(reaction));
+				bus->readBytes((uint8_t*)&reaction, sizeof(reaction));
+				if (reaction < 0 || (uint32_t)reaction > maxValidReactionUs) {
+					// Implausible value -- likely wire corruption. NACK so the
+					// sender retries; do not let it reach the display.
+					rx.lastLocalError = err_INVALID_MSG;
+					txNack(rx.ID);
+					break;
+				}
 				if (rx.ID == MSG_LEFT_REACT) {
 					rx.LeftReactionTime  = reaction;
 					rx.LeftReactionValid = true;
@@ -87,8 +130,8 @@ bool rxSerial() {
 			break;
 		}
 		case MSG_FOUL: {
-			if (Serial.available() >= 1) {
-				uint8_t foulMask = Serial.read();
+			if (bus->available() >= 1) {
+				uint8_t foulMask = bus->read();
 				rx.LeftFoul  = foulMask & 0b0001;
 				rx.RightFoul = foulMask & 0b0010;
 				txAck(rx.ID);
@@ -96,8 +139,8 @@ bool rxSerial() {
 			break;
 		}
 		case MSG_WINNER: {
-			if (Serial.available() >= 1) {
-				uint8_t winnerMask = Serial.read();
+			if (bus->available() >= 1) {
+				uint8_t winnerMask = bus->read();
 				rx.LeftWin        = winnerMask & 0b0001;
 				rx.RightWin       = winnerMask & 0b0010;
 				rx.Tie            = winnerMask & 0b0100;
@@ -113,8 +156,8 @@ bool rxSerial() {
 			break;
 		}
 		case MSG_ACK: {
-			if (Serial.available() >= 1) {
-				rx.lastAckedMsgID = (serialMsgID)Serial.read();
+			if (bus->available() >= 1) {
+				rx.lastAckedMsgID = (serialMsgID)bus->read();
 				if (rx.lastAckedMsgID < MSG_COUNT) {
 					txState[rx.lastAckedMsgID].status = TX_ACKED;
 				}
@@ -122,8 +165,8 @@ bool rxSerial() {
 			break;
 		}
 		case MSG_NACK: {
-			if (Serial.available() >= 1) {
-				rx.lastNackedMsgID = (serialMsgID)Serial.read();
+			if (bus->available() >= 1) {
+				rx.lastNackedMsgID = (serialMsgID)bus->read();
 				if (rx.lastNackedMsgID < MSG_COUNT) {
 					txState[rx.lastNackedMsgID].status = TX_NACKED;
 				}
@@ -131,13 +174,14 @@ bool rxSerial() {
 			break;
 		}
 		case MSG_ERROR: {
-			if (Serial.available() >= 1) {
-				rx.lastErrorCode = (errCode)Serial.read();
+			if (bus->available() >= 1) {
+				rx.lastErrorCode = (errCode)bus->read();
 				txAck(rx.ID);
 			}
 			break;
 		}
 		default: {
+			rx.lastLocalError = err_INVALID_MSG;
 			txNack(rx.ID);
 			break;
 		}
@@ -200,6 +244,8 @@ static void txDrive() {
 			memmove(&txQueue[0], &txQueue[1], (txQueueLen - 1) * sizeof(serialMsgID));
 			txQueueLen--;
 			return;
+		default:
+			return;
 	}
 }
 
@@ -215,8 +261,8 @@ bool txRaceState(uint8_t newState) {
 	return enqueueMsg(MSG_RACE_STATE, &newState, 1, false);
 }
 
-bool txRaceStart(uint8_t start) {
-	return enqueueMsg(MSG_RACE_START, &start, 1, true);   // priority — jumps queue
+bool txRaceStart() {
+	return enqueueMsg(MSG_RACE_START, nullptr, 0, true);   // priority — jumps queue
 }
 
 bool txReactionTime(uint32_t reactionTime, Lane lane) {
@@ -257,13 +303,13 @@ void txService() {
 // ---------------------------------------------------------------
 
 void txAck(uint8_t ackID) {
-	Serial.write((uint8_t)MSG_ACK);
-	Serial.write(ackID);
+	bus->write((uint8_t)MSG_ACK);
+	bus->write(ackID);
 }
 
 void txNack(uint8_t nackID) {
-	Serial.write((uint8_t)MSG_NACK);
-	Serial.write(nackID);
+	bus->write((uint8_t)MSG_NACK);
+	bus->write(nackID);
 }
 
 // ---------------------------------------------------------------
@@ -271,9 +317,9 @@ void txNack(uint8_t nackID) {
 // ---------------------------------------------------------------
 
 void sendMessage(serialMsgID id, const uint8_t* data, uint8_t dataLen) {
-	Serial.write((uint8_t)id);
+	bus->write((uint8_t)id);
 	if (dataLen > 0 && data != nullptr) {
-		Serial.write(data, dataLen);
+		bus->write(data, dataLen);
 	}
 }
 
@@ -281,7 +327,6 @@ uint8_t getExpectedPayloadLength(serialMsgID id) {
 	switch (id) {
 		case MSG_RACE_MODE:
 		case MSG_RACE_STATE:
-		case MSG_RACE_START:
 		case MSG_FOUL:
 		case MSG_WINNER:
 		case MSG_ACK:
@@ -291,6 +336,7 @@ uint8_t getExpectedPayloadLength(serialMsgID id) {
 		case MSG_LEFT_REACT:
 		case MSG_RIGHT_REACT:
 			return sizeof(uint32_t);
+		case MSG_RACE_START:
 		case MSG_DISP_ADVANCE:
 			return 0;
 		default:
