@@ -204,9 +204,8 @@ void testRaceState() {
 }
 
 void testRaceStart() {
-    Serial.println(F("\n[TEST] MSG_RACE_START (priority message)"));
-    uint8_t mask = start_all;
-    expectAck(MSG_RACE_START, &mask, 1);
+    Serial.println(F("\n[TEST] MSG_RACE_START (priority message, zero payload)"));
+    expectAck(MSG_RACE_START, nullptr, 0);
 }
 
 void testReactionTime() {
@@ -309,9 +308,8 @@ void testPriorityQueue() {
     // Send RACE_MODE then immediately RACE_START. Both should ACK.
     // Observe ACK IDs in serial monitor: RACE_START ACK should arrive before RACE_MODE ACK.
     uint8_t mode  = MODE_GATEDROP;
-    uint8_t start = start_all;
     dutSend(MSG_RACE_MODE,  &mode,  1);
-    dutSend(MSG_RACE_START, &start, 1);
+    dutSend(MSG_RACE_START, nullptr, 0);
     bool a1 = (waitResponse(ACK_TIMEOUT_MS) && lastRxID == MSG_ACK);
     bool a2 = (waitResponse(ACK_TIMEOUT_MS) && lastRxID == MSG_ACK);
     stats.total++;

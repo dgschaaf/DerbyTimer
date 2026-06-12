@@ -50,12 +50,12 @@ enum MsgID : uint8_t {
 
 static uint8_t payloadLen(uint8_t id) {
     switch ((MsgID)id) {
-        case ID_RACE_MODE: case ID_RACE_STATE: case ID_RACE_START:
+        case ID_RACE_MODE: case ID_RACE_STATE:
         case ID_ERROR: case ID_FOUL: case ID_WINNER: case ID_ACK: case ID_NACK:
             return 1;
         case ID_LEFT_REACT: case ID_RIGHT_REACT:
             return 4;
-        default:
+        default:   // ID_RACE_START and ID_DISP_ADVANCE are zero-payload
             return 0;
     }
 }

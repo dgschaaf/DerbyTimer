@@ -99,7 +99,7 @@ def _load_protocol():
     # Must mirror getExpectedPayloadLength() in serialComm.cpp.
     _PAYLOAD_BY_NAME = {
         'NULL': 0, 'ACK': 1, 'NACK': 1, 'RACE_MODE': 1, 'RACE_STATE': 1,
-        'RACE_START': 1, 'ERROR': 1, 'LEFT_REACT': 4, 'RIGHT_REACT': 4,
+        'RACE_START': 0, 'ERROR': 1, 'LEFT_REACT': 4, 'RIGHT_REACT': 4,
         'FOUL': 1, 'WINNER': 1, 'DISP_ADVANCE': 0,
     }
     for name in MSG:
@@ -176,8 +176,6 @@ def fmt_payload(msg_id, payload):
         return f"for {name}"
     if msg_id == MSG["ERROR"]:
         return ERR_NAME.get(payload[0], f"0x{payload[0]:02X}")
-    if msg_id == MSG["RACE_START"]:
-        return f"mask=0x{payload[0]:02X}"
     return " ".join(f"{b:02X}" for b in payload)
 
 # ---------------------------------------------------------------------------
@@ -323,7 +321,7 @@ def mode_sc_sim(mon):
     steps = [
         (MSG["RACE_STATE"], bytes([STATE["STAGING"]]),   "STAGING"),
         (MSG["RACE_STATE"], bytes([STATE["COUNTDOWN"]]), "COUNTDOWN"),
-        (MSG["RACE_START"], bytes([0b0111]),              "GO"),
+        (MSG["RACE_START"], b"",                          "GO"),
         (MSG["RACE_STATE"], bytes([STATE["COMPLETE"]]),  "COMPLETE"),
         (MSG["RACE_STATE"], bytes([STATE["IDLE"]]),      "IDLE"),
     ]
@@ -468,7 +466,7 @@ def mode_injector(mon):
                 mon.send(MSG["RACE_STATE"], bytes([v]))
                 mon.wait_ack(MSG["RACE_STATE"])
             elif cmd == "3":
-                mon.send(MSG["RACE_START"], bytes([0b0111]))
+                mon.send(MSG["RACE_START"])
                 mon.wait_ack(MSG["RACE_START"])
             elif cmd == "4":
                 v = prompt_int("Foul (1=left 2=right 3=both)", 1, 3)
