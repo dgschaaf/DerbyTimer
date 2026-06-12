@@ -114,7 +114,7 @@ Shared library: `firmware/lib/shared/serialComm.cpp/.h`
 | Finish → Start | `MSG_WINNER`, `MSG_RACE_STATE` |
 | Both | `MSG_ACK`, `MSG_NACK` |
 
-Shared enums (`raceState`, `raceMode`, `countdownState`) and bitmask constants are defined in `firmware/lib/shared/raceTypes.h`.
+Shared enums (`raceState`, `raceMode`, `countdownState`) and bitmask constants are defined in `firmware/lib/shared/raceTypes.h`. Byte-level wire format reference: [docs/protocol.md](docs/protocol.md).
 
 ---
 
@@ -198,16 +198,24 @@ arduino-cli compile --fqbn arduino:avr:nano --library firmware/lib/shared firmwa
 arduino-cli compile --fqbn arduino:mbed_nano:nano33ble --library firmware/lib/shared firmware/finishController/finishController.ino
 ```
 
-### Option 3 — Arduino IDE 1.8+
+### Option 3 — Arduino IDE (not recommended)
 
-Open the `.ino` sketch file and select the correct board before compiling:
+The IDE does not know about `firmware/lib/shared`, so opening the `.ino`
+directly fails with `serialComm.h: No such file or directory`. To use the
+IDE anyway: copy the `firmware/lib/shared/` folder into your sketchbook
+`libraries/` folder (e.g. `Documents/Arduino/libraries/shared/`) and re-copy
+it after every shared-library change. Boards: Start Controller = Arduino
+Nano (ATmega328P); Finish Controller = Arduino Nano 33 BLE. Options 1 and 2
+avoid all of this — prefer them.
 
-| Controller | Board |
-|------------|-------|
-| Start Controller | Arduino Nano (ATmega328P) |
-| Finish Controller | Arduino Nano 33 BLE |
+### Serial monitoring
 
-Serial monitor baud rate: **115,200** for both controllers.
+Debug builds (`-DDERBY_DEBUG`) log at **115,200** baud. The Finish
+Controller's debug output (USB) coexists with live racing — the wire
+protocol runs on Serial1 (D0/D1). The Start Controller's single UART is
+shared between USB and the wire protocol: never flash or monitor the SC
+over USB with the comm cable connected. Full bench procedure:
+[docs/bench-test-protocol.md](docs/bench-test-protocol.md).
 
 ---
 

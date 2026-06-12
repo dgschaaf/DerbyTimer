@@ -29,19 +29,32 @@ Run the cheapest layer first. Only escalate to hardware when the layer below pas
 | Suite | What it covers |
 |-------|---------------|
 | `test_bitmasks/` | Bitfield encoding/decoding for foul, winner, and mode flags |
-| `test_compute/` | Car time calculation (reaction subtraction, foul addition, rounding) |
+| `test_compute/` | Car time calculation (reaction subtraction, foul addition, clamping, winner/DNF logic) |
+| `test_display/` | Display digit extraction: us-to-ms rounding, 99.998 clamp, 88.888 sentinel |
+| `test_serialcomm/` | The real protocol engine (`serialComm.cpp`): RX parsing per message, payload validation, stale-partial flush, TX ACK/retry/timeout/priority/dedup |
 | `test_state_machine/` | Allowed-transition table enforcement for all state pairs |
-| `test_timing/` | Overflow-safe microsecond elapsed-time arithmetic |
+| `test_timing/` | Overflow-safe microsecond elapsed-time arithmetic, foul/reaction edge cases |
 
-**Mocks:** `firmware/test/shared/arduino_mock.h` provides stub implementations of `millis()`, `micros()`, and `Serial` so the tests compile and run on a Windows/Mac desktop without any Arduino attached.
+**Mocks:** `firmware/test/shared/Arduino.h` is a scriptable mock of the Arduino API: feedable serial RX buffer, captured TX buffer, and controllable `millis()`/`micros()`. It is deliberately named `Arduino.h` so that production sources' `#include <Arduino.h>` resolves to it in the native build -- this is how `test_serialcomm` compiles the real `serialComm.cpp` instead of a copy. It cannot collide with real builds: only the `[env:native]` include path (`-I firmware/test/shared`) sees it; arduino-cli, PlatformIO embedded builds, and the Arduino IDE never look inside `firmware/test/`. (`arduino_mock.h` is a compatibility shim that includes it.)
 
-**To run:**
+**To run (pick one):**
+
+1. **VS Code (easiest):** `Terminal > Run Task... > Run L2 Native Tests`
+   (defined in `.vscode/tasks.json`).
+2. **PlatformIO terminal:** Command Palette (`Ctrl+Shift+P`) >
+   `PlatformIO: New Terminal`, then `pio test -e native`. This terminal has
+   `pio` on its PATH; a plain PowerShell/CMD terminal does NOT.
+3. **Any terminal, full path:**
 
 ```sh
-pio test -e native
+& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" test -e native   # PowerShell
 ```
 
-Requires MinGW GCC on Windows: `choco install mingw` (Chocolatey sets the PATH permanently; open a new terminal after installing). PlatformIO VS Code extension also required.
+Note: typing `pio test -e native` into the Command Palette itself does
+nothing -- the palette runs editor commands, not shell commands. Use one of
+the three routes above. Expected result: `59 test cases: 59 succeeded`.
+
+Requires MinGW GCC on Windows: `choco install mingw` (Chocolatey sets the PATH permanently; open a new terminal after installing). PlatformIO VS Code extension also required (it installs `pio.exe` under `%USERPROFILE%\.platformio\penv\`).
 
 ---
 
@@ -60,6 +73,8 @@ Full wiring diagram, command reference, and test protocol: `firmware/fwTest/derb
 
 ## See Also
 
+- **Two-board integration bench protocol (P1-19): [docs/bench-test-protocol.md](bench-test-protocol.md)** -- staged bring-up checklist, FTDI tap/simulator wiring, symptom table
 - Race self-test result codes: [docs/race-test-codes.md](race-test-codes.md)
 - Hardware test procedures: [hardware/hwTest/](../hardware/hwTest/)
-- Serial protocol reference: [.claude/architecture.md](../.claude/architecture.md)
+- Wire protocol byte-level reference: [docs/protocol.md](protocol.md)
+- Serial protocol architecture: [.claude/architecture.md](../.claude/architecture.md)

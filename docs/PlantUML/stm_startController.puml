@@ -104,7 +104,7 @@ note right of COUNTDOWN
       leftStartUs = rightStartUs = raceStartUs
   . Reaction modes: gates stay up;
       drivers hold buttons to release in RACING
-  . txRaceStart(0b0001) sent to finishController
+  . txRaceStart() sent to finishController
       (retry up to 3x, 50 ms timeout each)
 end note
 

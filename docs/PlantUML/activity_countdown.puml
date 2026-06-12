@@ -127,7 +127,7 @@ else (Reaction / Pro — gates still up)
   end note
 endif
 
-:txRaceStart(0b0001) -> finishController
+:txRaceStart() -> finishController
 [retry up to 3x, 50 ms timeout];
 
 note right

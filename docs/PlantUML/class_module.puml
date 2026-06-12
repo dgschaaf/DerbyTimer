@@ -142,7 +142,6 @@ class lights <<module>> {
   +setupLights()                                                  : void
   +updateLights(config : byte)                                    : void
   +buildLightConfig(state, FL, FR, mode)                          : byte
-  +lightTestPattern()                                             : void
   +startBlink(pattern1, pattern2, count, rate, finalPattern)      : void
   +updateBlink()                                                  : bool
 }
@@ -155,9 +154,9 @@ class serialComm <<module>> {
   +rx.lastErrorCode       : errCode
   +rx.Mode                : raceMode
   +rx.State               : raceState
+  +rx.StateChanged        : bool
+  +rx.lastLocalError      : errCode
   +rx.RaceStart           : bool
-  +rx.LeftStart           : bool
-  +rx.RightStart          : bool
   +rx.LeftFoul            : bool
   +rx.RightFoul           : bool
   +rx.LeftWin             : bool
@@ -170,11 +169,12 @@ class serialComm <<module>> {
   {field} constexpr txTimeout : uint16_t = 50
   --
   +setupSerial()                            : void
+  +setupSerialBus(port : Stream&)           : void
   +rxSerial()                               : bool
   +txRaceMode(newMode)                      : txStatus
   +txRaceState(newState)                    : txStatus
-  +txRaceStart(start : uint8_t)             : txStatus
-  +txReactionTime(reactionTime, isLeft)     : txStatus
+  +txRaceStart()                            : txStatus
+  +txReactionTime(reactionTime, lane)       : txStatus
   +txFoulStatus(foul : uint8_t)             : txStatus
   +txWinner(winner : uint8_t)               : txStatus
   +txDisplayAdvance()                       : txStatus
@@ -183,7 +183,6 @@ class serialComm <<module>> {
   +txNack(nackID : uint8_t)                 : void
   +sendMessage(id, data, len)               : void
   +getExpectedPayloadLength(id)             : uint8_t
-  +resetTxState(id)                         : void
 }
 
 class globals <<module>> {
@@ -196,10 +195,6 @@ class globals <<module>> {
   {field} #define winner_leftWin
   {field} #define winner_rightWin
   {field} #define winner_noResult
-  {field} #define start_race
-  {field} #define start_left
-  {field} #define start_right
-  {field} #define start_all
   {field} #define foul_left
   {field} #define foul_right
   {field} #define foul_both
