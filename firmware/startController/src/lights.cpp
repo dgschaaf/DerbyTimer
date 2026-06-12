@@ -45,46 +45,15 @@ byte buildLightConfig(countdownState state, bool FL, bool FR, raceMode mode) {
     return config;
 }
 
-void lightTestPattern() {
-    Serial.println(F("Running light pattern test..."));
-
-    const unsigned long delayTime = 1000;
-
-    // All individual lights
-    byte patterns[] = {
-        LIGHT_BL,
-        LIGHT_BR,
-        LIGHT_Y3,
-        LIGHT_Y2,
-        LIGHT_Y1,
-        LIGHT_GO,
-        LIGHT_FL,
-        LIGHT_FR,
-        LIGHT_GO | LIGHT_FL,   			// Green + Red Left
-        LIGHT_GO | LIGHT_FR,   			// Green + Red Right
-        LIGHT_FL | LIGHT_FR,   			// Both Red
-        LIGHT_Y1 | LIGHT_Y2 | LIGHT_Y3,	// PRO Mode
-        LIGHT_BL | LIGHT_BR, 			// Staged mode
-        LIGHT_GO | LIGHT_FL | LIGHT_FR,	// GO with both fouls
-        LIGHT_OFF                 		// All off
-    };
-
-    const int numPatterns = sizeof(patterns) / sizeof(patterns[0]);
-
-    for (int i = 0; i < numPatterns; i++) {
-        updateLights(patterns[i]);
-        Serial.print(F("Pattern ")); Serial.println(i);
-        delay(delayTime);
-    }
-
-    Serial.println(F("Light pattern test complete."));
-}
-
-
 void cancelBlink() { blinkState.active = false; }
 bool isBlinking()  { return blinkState.active; }
 
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern) {
+    if (count == 0) {                 // zero blinks: just apply the final pattern
+        blinkState.active = false;    // (guards the remaining counter against wrapping)
+        updateLights(finalPattern);
+        return;
+    }
     blinkState.pattern1 = pattern1;
     blinkState.pattern2 = pattern2;
     blinkState.count = count;

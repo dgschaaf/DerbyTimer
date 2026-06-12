@@ -20,7 +20,7 @@ static constexpr uint8_t PIN_LANE1 = A2;      // BCD_Lane1 (E2 on U1)
 static constexpr uint8_t PIN_LANE2 = A3;      // BCD_Lane2 (E2 on U2)
 
 // Digit index mapping (0–4 -> tens, ones, tenths, hundredths, thousandths)
-static constexpr uint8_t NUM_DIGITS = 5;
+static constexpr uint8_t NUM_DIGITS = DISPLAY_NUM_DIGITS;
 
 // -------------------------------------------
 void setupDisplay() {
@@ -71,17 +71,9 @@ static void writeDigit(uint8_t idx, uint8_t val, bool showDecimal) {
 
 // -------------------------------------------
 void updateDisplay(uint32_t timeUs, Lane lane) {
-    
-    // Rounds time in us to ms
-    uint32_t tMs = (timeUs + 500) / 1000;               // round time to the nearest millisecond
-    if (tMs > 99998) tMs = 99998;                       // 99999500 µs rounds to 100000 ms (6 digits); clamp at 99998 to prevent display overflow
 
     uint8_t d[NUM_DIGITS];
-    d[0] = (tMs / 10000) % 10;  // tens
-    d[1] = (tMs /  1000) % 10;  // ones
-    d[2] = (tMs /   100) % 10;  // tenths
-    d[3] = (tMs /    10) % 10;  // hundredths
-    d[4] =  tMs          % 10;  // thousandths
+    extractDisplayDigits(timeUs, d);    // round to ms, clamp, split into BCD digits
 
     // Lane enable (E2 = HIGH to activate)
     if (lane == LANE_LEFT) {

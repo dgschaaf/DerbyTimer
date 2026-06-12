@@ -21,7 +21,12 @@ struct raceTimingData {
 		return (int32_t)(laneStartUs[lane] - raceStartUs) < 0;
 	}
 	uint32_t reactionTimeUs(Lane lane) const {
-		if (isFoul(lane)) return raceStartUs - laneStartUs[lane];
+		if (isFoul(lane)) {
+			// Foul with no GO timestamp (race never started): no meaningful
+			// reaction duration exists -- return 0 rather than wrapping.
+			if (raceStartUs == 0) return 0;
+			return raceStartUs - laneStartUs[lane];
+		}
 		return laneStartUs[lane] - raceStartUs;
 	}
 };

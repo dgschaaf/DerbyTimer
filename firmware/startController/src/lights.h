@@ -12,6 +12,10 @@
  * 
  */
 
+// Non-blocking blink animation state: alternates pattern1/pattern2 `count`
+// times at `rate` ms per toggle, then holds finalPattern. startBlink() arms
+// it; the main loop must call updateBlink() every iteration to advance it
+// (returns false once finished). One global instance lives in lights.cpp.
 struct BlinkState {
     byte pattern1;
     byte pattern2;
@@ -41,7 +45,6 @@ void setupLights();
 // Public API
 void updateLights(byte config);
 byte buildLightConfig(countdownState state, bool FL, bool FR, raceMode mode);
-void lightTestPattern();
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern);
 void cancelBlink();
 bool isBlinking();
