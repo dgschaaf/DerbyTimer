@@ -41,7 +41,7 @@ Run the cheapest layer first. Only escalate to hardware when the layer below pas
 pio test -e native
 ```
 
-Requires the PlatformIO VS Code extension and `pio pkg install` (see P2-35 in `.claude/project-status.md` if the native platform is not yet installed).
+Requires MinGW GCC on Windows: `choco install mingw` (Chocolatey sets the PATH permanently; open a new terminal after installing). PlatformIO VS Code extension also required.
 
 ---
 
