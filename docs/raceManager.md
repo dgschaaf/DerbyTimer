@@ -530,7 +530,7 @@ Configurable per event (stored with the session, not globally):
 - [ ] Implement writable characteristics: Set Mode and Initiate Test; guard with `RACE_IDLE` check
 - [ ] BLE connection event handler; `bleConnected` flag
 - [ ] Validate BLE notify timing does not interfere with display ISR (30 µs settle)
-- [ ] Reference: P2-1 in project-status.md
+- [ ] Reference: `.claude/backlog.md` P3 (feature-raceManager section)
 
 ### Phase 2 — Race Manager Skeleton (RPi)
 

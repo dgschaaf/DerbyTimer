@@ -10,7 +10,7 @@ Do this at your desk before touching hardware.
 
 - [ ] `startController` compiles clean, zero warnings
 - [ ] `finishController` compiles clean, zero warnings
-- [ ] All P0 and P1 code items in `project-status.md` are resolved or explicitly accepted
+- [ ] All P0 and P1 code items in `.claude/backlog.md` are resolved or explicitly accepted
 - [ ] Fresh flash to both controllers from the same build
 
 ---
@@ -97,7 +97,7 @@ Run at least one complete heat in each mode, end to end.
 - [ ] Full dry run: 4–6 back-to-back heats across multiple modes, no errors
 - [ ] Laptop on-site with `arduino-cli` and both `.ino` files ready for emergency reflash
 - [ ] USB cables for both Nanos packed
-- [ ] `project-status.md` reviewed — no surprise open P1s
+- [ ] `.claude/backlog.md` reviewed — no surprise open P1s
 
 ---
 

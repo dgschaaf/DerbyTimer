@@ -143,7 +143,7 @@ KiCad schematics and PCB layouts are in `hardware/startBoard/` and `hardware/fin
 
 ### L2 — Desktop Unit Tests (`test/native/`)
 
-PlatformIO native environment (`pio test -e native`). Tests and stubs live in `firmware/test/`. Activate by installing the PlatformIO VS Code extension and running `pio pkg install` (see P2-35 in `.claude/project-status.md`).
+PlatformIO native environment (`pio test -e native`). Tests and stubs live in `firmware/test/`. Activate by installing the PlatformIO VS Code extension and running `pio pkg install` (see the L2 section of `docs/testing.md`).
 
 ### L3a — Serial Protocol Tests (`firmware/fwTest/`)
 
