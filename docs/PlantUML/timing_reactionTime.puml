@@ -91,14 +91,14 @@ RS is COMPLETE
 ' ============================================================
 ' Annotations: reaction time math
 ' ============================================================
-note over GC, BC
+note over GC
   CLEAN START:
   reactionTimeUs = carStartUs - raceStartUs = 2200 - 2000 = 200 ms
   carTimeUs = raceTimeUs - reactionTimeUs  = 3000 - 200  = 2800 ms
   (reward: clean reaction subtracted from elapsed time)
 end note
 
-note over GF, BF
+note over GF
   FOUL START:
   reactionTimeUs = raceStartUs - carStartUs = 2000 - 1800 = 200 ms
   carTimeUs = raceTimeUs + reactionTimeUs  = 3000 + 200  = 3200 ms

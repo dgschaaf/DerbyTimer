@@ -17,8 +17,8 @@ participant "Finish\nController" as FC
 participant "Tree\nLights\n(74HC595)" as TREE
 participant "Display\nLeft"      as DL
 participant "Display\nRight"     as DR
-participant "Race\nManager"      as RM   #line.dashed
-participant "Projector"          as PROJ #line.dashed
+participant "Race\nManager"      as RM   #DDDDDD
+participant "Projector"          as PROJ #DDDDDD
 
 note over RM, PROJ
   future: Race Manager (RPi via BLE) and Projector
