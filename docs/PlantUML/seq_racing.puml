@@ -19,8 +19,8 @@ participant "Start\nController"  as SC
 participant "Finish\nController" as FC
 participant "Sensor\nLeft"       as SL
 participant "Sensor\nRight"      as SR
-participant "Race\nManager"      as RM  #line.dashed
-participant "Camera"             as CAM #line.dashed
+participant "Race\nManager"      as RM  #DDDDDD
+participant "Camera"             as CAM #DDDDDD
 
 note over RM, CAM
   future: Race Manager (RPi via BLE) and Camera

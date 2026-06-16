@@ -15,7 +15,7 @@ participant "User\nInput"        as UI
 participant "Button\nMode"       as BM
 participant "Start\nController"  as SC
 participant "Finish\nController" as FC
-participant "Race\nManager"      as RM  #line.dashed
+participant "Race\nManager"      as RM  #DDDDDD
 participant "Tree\nLeft"         as TL
 participant "Tree\nRight"        as TR
 participant "Gate L"             as GL
