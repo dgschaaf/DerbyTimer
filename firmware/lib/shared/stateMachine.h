@@ -108,6 +108,49 @@ struct stateMachine {
 		exit    = true;
 	}
 
+	// ---- Declare-intent interface ----
+	// Handlers declare where the machine should go (request) and give it
+	// one chance per pass to get there (service). The coordinated-transition
+	// protocol -- consume the peer's message, then drive a pending intent
+	// through send/ACK/commit -- lives inside the machine, so a call site
+	// cannot get the ordering wrong.
+
+	// Record intent to transition. Idempotent -- safe to call every pass.
+	// Illegal transitions are ignored (same legality table selfTransition
+	// enforces).
+	void request(raceState next) {
+		if (next == current) return;
+		if (!allowedTransition(next)) return;
+		target = next;
+	}
+
+	// One call per handler pass: (1) unless holdRx, consume a freshly
+	// received state edge (follower path); (2) drive any pending request
+	// through the coordinated transition protocol (initiator path).
+	// holdRx DEFERS the received edge -- never discards it -- so the
+	// message applies on the first unheld pass. Used for the RACING
+	// data-integrity hold: lane results must finish flowing before a
+	// state change is honored.
+	void service(bool holdRx = false) {
+		if (!holdRx) serviceRx();
+		if (target != current) selfTransition(target);
+	}
+
+	// Return-and-clear accessors for the entry/exit flags: true exactly
+	// once per transition. Clearing is part of the read, so entry/exit
+	// work cannot run twice and the flag reset cannot be forgotten.
+	bool takeEntry() {
+		if (!entry) return false;
+		entry = false;
+		return true;
+	}
+
+	bool takeExit() {
+		if (!exit) return false;
+		exit = false;
+		return true;
+	}
+
 	void forceIdle() {
 		// Abort path: resets local state to IDLE immediately without waiting
 		// for an ACK. Fires a best-effort MSG_RACE_STATE(IDLE) so the other
