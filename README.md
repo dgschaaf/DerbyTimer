@@ -2,7 +2,8 @@
 
 Pinewood derby timing and race track control system.
 
-**Author:** Darren Schaaf
+**Author:** Darren Schaaf  
+**Documentation guide:** [docs/README.md](docs/README.md)
 
 ---
 
