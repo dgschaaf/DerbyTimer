@@ -124,14 +124,18 @@ struct stateMachine {
 		target = next;
 	}
 
-	// One call per handler pass: (1) unless holdRx, consume a freshly
-	// received state edge (follower path); (2) drive any pending request
-	// through the coordinated transition protocol (initiator path).
-	// holdRx DEFERS the received edge -- never discards it -- so the
-	// message applies on the first unheld pass. Used for the RACING
-	// data-integrity hold: lane results must finish flowing before a
-	// state change is honored.
+	// One call per handler pass: (1) scrub any stale exit flag -- every
+	// commit raises exit for the state being LEFT, and a state that has no
+	// exit actions never consumes it, so without the scrub the NEXT state
+	// would inherit it and fire its own exit actions on arrival; (2) unless
+	// holdRx, consume a freshly received state edge (follower path);
+	// (3) drive any pending request through the coordinated transition
+	// protocol (initiator path). holdRx DEFERS the received edge -- never
+	// discards it -- so the message applies on the first unheld pass. Used
+	// for the RACING data-integrity hold: lane results must finish flowing
+	// before a state change is honored.
 	void service(bool holdRx = false) {
+		exit = false;
 		if (!holdRx) serviceRx();
 		if (target != current) selfTransition(target);
 	}
@@ -139,6 +143,10 @@ struct stateMachine {
 	// Return-and-clear accessors for the entry/exit flags: true exactly
 	// once per transition. Clearing is part of the read, so entry/exit
 	// work cannot run twice and the flag reset cannot be forgotten.
+	// Lifetimes differ: entry persists until the new state's handler
+	// consumes it (usually the next pass); exit is only observable in the
+	// pass its transition commits -- call takeExit() AFTER service() in
+	// the same pass.
 	bool takeEntry() {
 		if (!entry) return false;
 		entry = false;

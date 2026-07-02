@@ -165,8 +165,7 @@ void finishControllerLoop() {
 // IDLE: between-heats rest state. Clears all heat data, blanks the displays,
 // tracks mode changes from the SC, and follows the SC's ->STAGING.
 static void handleIdle(){
-	if(stm.entry){
-		stm.entry = false;
+	if (stm.takeEntry()) {
 		DBG("[FC] ->IDLE");
 		rx.clearHeatEvents();
 		disarmSensors();
@@ -180,10 +179,7 @@ static void handleIdle(){
 		currentMode = (raceMode)rx.Mode;
 		// future: notify mode change over BLE
 	}
-	stm.serviceRx();
-	if(stm.exit){
-		stm.exit 			= false;
-	}
+	stm.service();
 }
 
 /* =========================================================================
@@ -192,14 +188,10 @@ static void handleIdle(){
 // STAGING: passive on the FC -- just follows the SC to COUNTDOWN or back
 // to IDLE.
 static void handleStaging(){
-	if(stm.entry){
-		stm.entry 			= false;
+	if (stm.takeEntry()) {
 		DBG("[FC] ->STAGING");
 	}
-	stm.serviceRx();
-	if(stm.exit){
-		stm.exit 			= false;
-	}
+	stm.service();
 }
 
 /* =========================================================================
@@ -209,8 +201,7 @@ static void handleStaging(){
 // the sensors the moment it arrives. Aborts to IDLE if the SC goes silent
 // for 10 s. Follows the SC's ->RACING.
 static void handleCountdown(){
-	if(stm.entry){
-		stm.entry            = false;
+	if (stm.takeEntry()) {
 		DBG("[FC] ->COUNTDOWN");
 		timingInputs.startUs = 0;
 		countdownEntryMs     = millis();
@@ -227,10 +218,7 @@ static void handleCountdown(){
 		timingInputs.startUs = micros();
 		armSensors(timingInputs.startUs);
 	}
-	stm.serviceRx();
-	if(stm.exit){
-		stm.exit 			= false;
-	}
+	stm.service();
 }
 
 /* =========================================================================
@@ -240,7 +228,7 @@ static void handleCountdown(){
 // reaction/foul messages. Initiates ->COMPLETE once both lanes are recorded;
 // disarms sensors on exit.
 static void handleRacing(){
-	if(stm.entry){
+	if (stm.takeEntry()) {
 		DBG("[FC] ->RACING");
 		timingInputs.leftRecorded		= false;
 		timingInputs.rightRecorded		= false;
@@ -248,7 +236,6 @@ static void handleRacing(){
 		timingInputs.rightTimeUs		= 0;
 		timingInputs.leftDnf			= false;
 		timingInputs.rightDnf			= false;
-		stm.entry 				= false;
 		// Only arm if not already armed from COUNTDOWN state
 		if (timingInputs.startUs == 0) {
 			timingInputs.startUs		= micros();
@@ -260,12 +247,13 @@ static void handleRacing(){
 	handleRxReaction();
 
 	if (timingInputs.leftRecorded && timingInputs.rightRecorded) {
-		stm.target	= RACE_COMPLETE;
+		stm.request(RACE_COMPLETE);
 	}
-	if (stm.target != stm.current) stm.selfTransition(stm.target);
+	// The FC initiates the exit from RACING; received state edges are held
+	// (an SC abort arrives as MSG_ERROR and forceIdles at loop level).
+	stm.service(true);
 
-	if(stm.exit){
-		stm.exit 				= false;
+	if (stm.takeExit()) {
 		disarmSensors();
 	}
 }
@@ -277,7 +265,7 @@ static void handleRacing(){
 // MSG_WINNER, then steps through display advances from the SC (car times ->
 // reaction times -> done). Initiates ->IDLE after the last advance.
 static void handleComplete(){
-	if(stm.entry){
+	if (stm.takeEntry()) {
 		DBG("[FC] ->COMPLETE");
 		handleRxReaction();   // fold in reaction/foul messages still in flight at the finish
 		computeHeatResults(heatResult, timingInputs);
@@ -308,7 +296,6 @@ static void handleComplete(){
 		}
 		DBG2("[FC] winner mask=", winnerMask);
 		pending.queue(MSG_WINNER);
-		stm.entry				= false;
 	}
 
 	if(rx.DisplayAdvanceFlag) {
@@ -316,14 +303,17 @@ static void handleComplete(){
 			displayReactionTimes();
 			needReact			= false;
 		} else if (!pending.anyPending()) {
-			stm.target		= RACE_IDLE;
+			// Advance to IDLE only once MSG_WINNER has resolved -- the gate
+			// decides WHETHER to request, not whether to service.
+			stm.request(RACE_IDLE);
 		}
 		rx.DisplayAdvanceFlag	= false;
 	}
-	if (stm.target != stm.current) stm.selfTransition(stm.target);
+	// The FC initiates the exit from COMPLETE; received state edges are held
+	// (an SC abort arrives as MSG_ERROR and forceIdles at loop level).
+	stm.service(true);
 
-	if(stm.exit){
-		stm.exit 			= false;
+	if (stm.takeExit()) {
 		heatResult			= {};
 		timingInputs		= {};
 	}
@@ -337,8 +327,7 @@ static void handleComplete(){
 // check, 4 result display (permanent; power-cycle to exit). Codes:
 // docs/race-test-codes.md.
 static void handleRaceTest(){
-	if (stm.entry) {
-		stm.entry = false;
+	if (stm.takeEntry()) {
 		DBG("[FC] ->RACE_TEST");
 		fct.reset();
 		fct.scCommReceived = ((raceState)rx.State == RACE_TEST);
@@ -479,9 +468,6 @@ static void handleRaceTest(){
 				}
 			}
 
-	if (stm.exit) {
-		stm.exit = false;
-	}
 }
 
 void handleSensors() {

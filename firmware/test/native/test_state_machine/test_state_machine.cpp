@@ -198,6 +198,24 @@ void test_stale_rx_state_not_refired() {
     TEST_ASSERT_FALSE(sm.takeEntry());
 }
 
+// A commit raises exit for the state being LEFT. If that state has no exit
+// actions, the flag goes unconsumed -- the NEXT state's handler must not
+// inherit it, or its exit actions would fire on arrival (e.g. sensors
+// disarmed the moment RACING starts). service() scrubs the stale flag at
+// the top of each pass.
+void test_stale_exit_not_inherited_by_next_state() {
+    stateMachine sm = {}; sm.current = RACE_COUNTDOWN; sm.target = RACE_COUNTDOWN;
+    feedState(RACE_RACING);
+    loopOnce(sm);                       // follower commit into RACING
+    TEST_ASSERT_TRUE(sm.exit);          // exit observable in the commit pass...
+
+    // ...but not in the next pass, run in handler order:
+    TEST_ASSERT_TRUE(sm.takeEntry());   // entry survives to the new handler
+    sm.service();                       // scrubs the stale exit
+    TEST_ASSERT_FALSE(sm.takeExit());   // COUNTDOWN's exit must not leak in
+    TEST_ASSERT_EQUAL(RACE_RACING, sm.current);
+}
+
 // forceIdle() with the new accessors: entry observable exactly once, exit
 // never raised (abort path skips exit work by design).
 void test_forceidle_take_entry_once_no_exit() {
@@ -266,6 +284,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_follower_commits_without_initiating);
     RUN_TEST(test_stale_rx_state_not_refired);
     RUN_TEST(test_holdrx_defers_edge_without_discarding);
+    RUN_TEST(test_stale_exit_not_inherited_by_next_state);
     RUN_TEST(test_forceidle_take_entry_once_no_exit);
     RUN_TEST(test_request_service_matches_old_interface);
     return UNITY_END();
