@@ -52,7 +52,8 @@ Run the cheapest layer first. Only escalate to hardware when the layer below pas
 
 Note: typing `pio test -e native` into the Command Palette itself does
 nothing -- the palette runs editor commands, not shell commands. Use one of
-the three routes above. Expected result: `59 test cases: 59 succeeded`.
+the three routes above. Expected result: every test case succeeds; the
+current case count and run history live in [test-log.md](test-log.md).
 
 Requires MinGW GCC on Windows: `choco install mingw` (Chocolatey sets the PATH permanently; open a new terminal after installing). PlatformIO VS Code extension also required (it installs `pio.exe` under `%USERPROFILE%\.platformio\penv\`).
 
@@ -77,4 +78,3 @@ Full wiring diagram, command reference, and test protocol: `firmware/fwTest/derb
 - Race self-test result codes: [docs/race-test-codes.md](race-test-codes.md)
 - Hardware test procedures: [hardware/hwTest/](../hardware/hwTest/)
 - Wire protocol byte-level reference: [docs/protocol.md](protocol.md)
-- Serial protocol architecture: [.claude/architecture.md](../.claude/architecture.md)

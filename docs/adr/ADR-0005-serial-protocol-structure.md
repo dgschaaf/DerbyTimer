@@ -1,4 +1,4 @@
-# ADR-0002: Serial protocol structure
+# ADR-0005: Serial protocol structure
 
 **Status:** Accepted
 **Date:** 2026-05-21

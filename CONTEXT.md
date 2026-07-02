@@ -90,6 +90,14 @@ _Avoid_: Design award, appearance award
 An age grouping used exclusively for Best in Show awards — not for race format or bracket structure. All cars race together regardless of division. Configured per event: zero, one, or two divisions. Current typical split when two divisions are used: Younger (3rd–5th grade) and Older (6th–8th grade).
 _Avoid_: Age group, category (as a synonym for division)
 
+**Dial-In** (DIALIIN):
+A future race mode where the Race Manager applies a per-car handicap to stagger gate drops (or reaction triggers) so that all cars theoretically arrive at the finish line simultaneously. The Race Manager first accumulates each car's average time from gate-drop heats, then computes handicaps and controls the precise start timing for each lane. Intended as a pure reaction mode — drivers still trigger their own gates, but the Race Manager staggers the GO signal per lane. Requires a hardware revision to support independent per-lane countdown light control (current hardware shares all yellow and green lights across both lanes). Not implemented in firmware beyond the mode stub; architecture must not preclude it.
+_Avoid_: Handicap mode (use Dial-In), staggered start (use handicap)
+
+**Handicap**:
+A per-car time offset in Dial-In mode, calculated by the Race Manager from that car's average race time across time trials. Applied by staggering when each lane's start signal fires so that all cars are expected to reach the finish line simultaneously. Stored and calculated by the Race Manager; the firmware receives the resulting timing commands over BLE.
+_Avoid_: Head start, time penalty, offset
+
 ## Relationships
 
 - An **Event** contains many **Heats**, organized into **Time Trials** and a **Bracket**
@@ -106,20 +114,11 @@ _Avoid_: Age group, category (as a synonym for division)
 > **Dev:** "And the Car Time on the display after a clean reaction-mode heat — that's gate-drop to finish, not green-light to finish?"
 > **Darren:** "Correct. Race Time is green to finish, Reaction Time is green to gate-drop, Car Time is gate-drop to finish. Car Time is what we care about — it's the car's performance without the driver's reaction in it."
 
-**Dial-In** (DIALIIN):
-A future race mode where the Race Manager applies a per-car handicap to stagger gate drops (or reaction triggers) so that all cars theoretically arrive at the finish line simultaneously. The Race Manager first accumulates each car's average time from gate-drop heats, then computes handicaps and controls the precise start timing for each lane. Intended as a pure reaction mode — drivers still trigger their own gates, but the Race Manager staggers the GO signal per lane. Requires a hardware revision to support independent per-lane countdown light control (current hardware shares all yellow and green lights across both lanes). Not implemented in firmware beyond the mode stub; architecture must not preclude it.
-_Avoid_: Handicap mode (use Dial-In), staggered start (use handicap)
-
-**Handicap**:
-A per-car time offset in Dial-In mode, calculated by the Race Manager from that car's average race time across time trials. Applied by staggering when each lane's start signal fires so that all cars are expected to reach the finish line simultaneously. Stored and calculated by the Race Manager; the firmware receives the resulting timing commands over BLE.
-_Avoid_: Head start, time penalty, offset
-
 ## Flagged ambiguities
 
 - "race" is used in firmware naming (`raceState`, `raceMode`, `raceResults`) to mean **Heat** — this is implementation naming only; use **Heat** in documentation and design discussions.
-- Foul reaction time on the track display: **blank the foul lane** (option B, resolved). The BCD hardware cannot label a number as "early jump time" vs. "reaction time," so showing any number for a DQ'd lane risks confusion with the clean lane's result. Foul coaching data (how early the driver jumped) belongs in the Race Manager UI where it can be labeled properly. The firmware's `displayReactionTimes()` must blank foul lanes, consistent with `displayCarTimes()`.
+- Foul lanes on the track displays: **blank the foul lane on both the car-time and reaction-time screens** (option B, resolved). A foul is an automatic loss, so the time is irrelevant — showing one invites petty "I was only 0.5 seconds early" arguments — and the BCD hardware cannot label a number as "early jump time" vs. "reaction time," so any number shown for a DQ'd lane risks confusion with the clean lane's result. Foul coaching data (how early the driver jumped) belongs in the Race Manager UI where it can be labeled properly. The firmware's `displayReactionTimes()` must blank foul lanes, consistent with `displayCarTimes()`.
 - "car" and "racer" are sometimes used interchangeably in casual speech — resolved: **Car** is the primary entity in all race data; **Racer** is reserved for when the person's name or persistent identity is the subject.
 - Dial-In mode requires per-lane countdown light control, which the current hardware does not support (all yellow and green lights share a single shift register output). Any firmware work on Dial-In must be preceded by a hardware revision. This constraint is not captured in the firmware or PCB docs yet.
 - The lane displays use the MC14543B BCD-to-7-segment decoder, which can only output digits 0–9 and blank. No alphabetic characters (no "DNF", "ERR", "FLt", etc.) are possible. Display design choices are constrained to numbers and blank.
 - A lane that does not cross the finish line within maxRaceTimeUs (10 s) is shown as 9.999 on the display. This is intentional: it is the maximum measurable time, provides positive operator confirmation that the heat has ended, and is the only option given the BCD hardware. The Race Manager must treat a received time of exactly maxRaceTimeUs as a DNF sentinel, not a real measurement.
-- Foul lanes are blanked on the car-time display — the time is irrelevant since a foul is an automatic loss; showing a time invites petty "I was only 0.5 seconds early" arguments. Whether foul reaction time (how early the driver jumped) is worth showing on the reaction-time screen is an open design question (see flagged ambiguities).
