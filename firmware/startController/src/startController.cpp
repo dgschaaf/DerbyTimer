@@ -39,14 +39,14 @@ static byte modeIndicatorPattern(raceMode mode) {
 struct modeSelect {
 	raceMode current;
 	raceMode target;
-	void nextMode() {
-		// Determine next mode in sequence for button press
+	raceMode nextMode() const {
+		// Next mode in sequence for a button press
 		switch(current) {
-			case MODE_GATEDROP:	target	= MODE_REACTION;	break;
-			case MODE_REACTION:	target	= MODE_PRO;			break;
-			case MODE_PRO:		target	= MODE_GATEDROP;	break; // DIALIIN is skipped — only Race Manager can enter it via BLE
-			case MODE_DIALIIN:	target	= MODE_GATEDROP;	break; // exit path: operator can press mode to leave DIALIIN
-			default: 			target	= MODE_GATEDROP;	break;
+			case MODE_GATEDROP:	return MODE_REACTION;
+			case MODE_REACTION:	return MODE_PRO;
+			case MODE_PRO:		return MODE_GATEDROP;	// DIALIIN is skipped -- only Race Manager can enter it via BLE
+			case MODE_DIALIIN:	return MODE_GATEDROP;	// exit path: operator can press mode to leave DIALIIN
+			default:			return MODE_GATEDROP;
 		}
 	}
 
@@ -101,6 +101,19 @@ struct modeSelect {
 
 		return;
 
+	}
+
+	// Declare-intent interface, mirroring stateMachine: request() records
+	// where the mode should go; service() consumes an unsolicited mode from
+	// the peer, then drives a pending request through send/ACK/commit.
+	void request(raceMode next) {
+		if (next == current) return;
+		target = next;
+	}
+
+	void service() {
+		if ((raceMode)rx.Mode != current) rxTransition((raceMode)rx.Mode);
+		if (target != current) selfTransition(target);
 	}
 };
 
@@ -303,8 +316,7 @@ void startControllerLoop(){
 // IDLE: between-heats rest state. Clears all heat data, allows mode changes,
 // and starts a new heat on the Start button (initiates IDLE->STAGING).
 static void handleIdle(){
-	if(stm.entry){
-		stm.entry		= false;
+	if (stm.takeEntry()) {
 		DBG("[SC] ->IDLE");
 		cd.state 		= CD_IDLE;
 		raceTiming.reset();
@@ -328,30 +340,25 @@ static void handleIdle(){
 	handleModeChanges();
 
 	if (!isBlinking()){
-		if (isStartPressed())	stm.target = RACE_STAGING;		// Start moves to STAGING
+		if (isStartPressed())	stm.request(RACE_STAGING);		// Start moves to STAGING
 	}
 
-	stm.serviceRx();
-	if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-	if(stm.exit){
-		stm.exit = false;
-	}
+	stm.service();
 }
 
  static void handleModeChanges(){
  	// Handle mode changes via button press or rxSerial.
-	// Mode changes preempt any in-progress blink — startBlink() in selfTransition/rxTransition overwrites.
-	if (rx.Mode != md.current){
-		md.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
-	} else {
+	// Mode changes preempt any in-progress blink -- startBlink() in selfTransition/rxTransition overwrites.
+	// Unsolicited peer changes (rx.Mode) take precedence over the button;
+	// md.service() consumes them.
+	if ((raceMode)rx.Mode == md.current){
 		if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
 		if (isModePressed() && modeReleased){
 			modeReleased			= false;					// don't revisit until released
-			md.nextMode();										// Select mode to advance to per transition order
+			md.request(md.nextMode());							// advance to the next operator-selectable mode
 		}
 	}
-	if (md.target != md.current) md.selfTransition(md.target);
+	md.service();
 }
 
  /* =========================================================================
@@ -360,8 +367,7 @@ static void handleIdle(){
 // STAGING: gates return so cars can be loaded. Start (with gates ready)
 // initiates ->COUNTDOWN; Mode initiates ->IDLE; follows FC aborts.
 static void handleStaging(){
-	if(stm.entry){
-		stm.entry			= false;
+	if (stm.takeEntry()) {
 		DBG("[SC] ->STAGING");
 		returnGates(); 											// reset the gate status to park the cars
 		cancelBlink();												// stop any pending blink before setting steady state
@@ -373,16 +379,11 @@ static void handleStaging(){
 	updateGates();
 
 	if (!isBlinking()){
-		if (isStartPressed() && areLanesReady())	stm.target = RACE_COUNTDOWN;	// Start moves to COUNTDOWN
-		if (isModePressed())	stm.target = RACE_IDLE;			// Mode returns to IDLE
+		if (isStartPressed() && areLanesReady())	stm.request(RACE_COUNTDOWN);	// Start moves to COUNTDOWN
+		if (isModePressed())	stm.request(RACE_IDLE);			// Mode returns to IDLE
 	}
 
-	stm.serviceRx();		// follow FC-initiated abort to IDLE
-	if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-	if(stm.exit){
-		stm.exit = false;
-	}
+	stm.service();			// also follows FC-initiated abort to IDLE
 }
 
 /* =========================================================================
@@ -392,8 +393,7 @@ static void handleStaging(){
 // and at GO captures the race-start timestamp, queues MSG_RACE_START, and
 // initiates ->RACING. Follows FC aborts.
 static void handleCountdown(){
-	if(stm.entry){
-		stm.entry = false;
+	if (stm.takeEntry()) {
 		DBG("[SC] ->COUNTDOWN");
 		cd.state  = CD_STAGED;
 	}
@@ -412,12 +412,7 @@ static void handleCountdown(){
 		updateLights(cdLights);
 	}
 
-	stm.serviceRx();		// follow FC-initiated abort to IDLE
-	if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-	if(stm.exit){
-		stm.exit = false;
-	}
+	stm.service();			// also follows FC-initiated abort to IDLE
 }
 
 static void handleEarlyStarts(unsigned long tn, raceMode mode){
@@ -437,7 +432,7 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode){
 
 static void handleCountdownGoActions(uint32_t tn){
 	DBG("[SC] GO -> queue RACE_START");
-	stm.target = RACE_RACING;
+	stm.request(RACE_RACING);
 	raceTiming.recordRaceStart(tn);
 	pending.queue(MSG_RACE_START);
 
@@ -455,8 +450,7 @@ static void handleCountdownGoActions(uint32_t tn){
 // captures lane releases in REACTION/PRO mode, then follows the FC's
 // ->COMPLETE once all queued messages have resolved.
 static void handleRacing(){
-	if(stm.entry){
-		stm.entry  = false;
+	if (stm.takeEntry()) {
 		DBG("[SC] ->RACING");
 		pending.queue(MSG_FOUL);
 		// Fouled lanes triggered during COUNTDOWN -- their gates are already
@@ -472,13 +466,10 @@ static void handleRacing(){
 		handleTrackTriggers(tNow);
 	}
 
-	if (!pending.anyPending()) {
-		stm.serviceRx();		// only accept COMPLETE once all pending messages sent
-	}
-
-	if(stm.exit){
-		stm.exit = false;
-	}
+	// Data-integrity hold: only follow the FC's COMPLETE once every queued
+	// heat message has resolved. The hold defers the state message; it is
+	// applied on the first pass after the queue drains.
+	stm.service(pending.anyPending());
 }
 
 static void handleTrackTriggers(uint32_t tn){
@@ -504,8 +495,7 @@ static void handleTrackTriggers(uint32_t tn){
 // forwards Start presses as display advances. Follows the FC's ->IDLE once
 // the win-light animation finishes.
 static void handleComplete(){
-	if(stm.entry){
-		stm.entry      = false;
+	if (stm.takeEntry()) {
 		DBG("[SC] ->COMPLETE");
 		winLightsPend  = true;
 		winLightTimer  = millis();
@@ -526,12 +516,10 @@ static void handleComplete(){
 		}
 	}
 
-	if (!winLightsPend && !updateBlink()) {   // updateBlink() drives the animation each loop
-		stm.serviceRx();
-	}
-
-	if(stm.exit){
-		stm.exit = false;
+	// Follow the FC to IDLE only after the win-light animation finishes --
+	// updateBlink() both drives the animation and reports it still running.
+	if (!winLightsPend && !updateBlink()) {
+		stm.service();
 	}
 }
 
@@ -551,8 +539,7 @@ static void handleDisplayAdvance(){
 // 0 FC comm ping, 1 light chase, 2 gate cycle, 3 button prompts, 4 result
 // display (permanent; power-cycle to exit). Codes: docs/race-test-codes.md.
 static void handleRaceTest(){
-	if (stm.entry) {
-		stm.entry = false;
+	if (stm.takeEntry()) {
 		DBG("[SC] ->RACE_TEST");
 		cancelBlink();
 		updateLights(LIGHT_OFF);
@@ -696,9 +683,6 @@ static void handleRaceTest(){
 		}
 	}
 
-	if (stm.exit) {
-		stm.exit = false;
-	}
 }
 
  /* =========================================================================
