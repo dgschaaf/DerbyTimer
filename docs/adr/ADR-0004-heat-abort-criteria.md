@@ -7,7 +7,7 @@
 
 Two controllers coordinate over UART to run a heat. Either controller can detect a failure that makes the heat result invalid â€” a missed serial message, a sensor failure, or a timeout. The system needs a clear, documented rule for *when* to abort a heat versus when to continue with degraded data.
 
-The `forceIdle()` mechanism (added in P1-12) lets either controller immediately reset to IDLE and fire a best-effort `MSG_RACE_STATE(IDLE)` so the peer can follow. It replaced the earlier "halt and blink" behavior, which required a power cycle to recover.
+The `forceIdle()` mechanism lets either controller immediately reset to IDLE and fire a best-effort `MSG_RACE_STATE(IDLE)` so the peer can follow. It replaced the earlier "halt and blink" behavior, which required a power cycle to recover.
 
 ## Decision
 
@@ -28,7 +28,7 @@ A result is untrustworthy when a required data dependency was permanently lost â
 
 | Event | Controller | Rationale |
 |-------|-----------|-----------|
-| `MSG_LEFT_REACT` / `MSG_RIGHT_REACT` TX failure | SC | Reaction times are record-keeping only. FC P1-8 guard fires a best-effort `txError` warning before displaying best-effort times (equal to race times). The heat result, while imprecise, is still valid and displayable. |
+| `MSG_LEFT_REACT` / `MSG_RIGHT_REACT` TX failure | SC | Reaction times are record-keeping only. FC's missing-reaction guard fires a best-effort `txError` warning before displaying best-effort times (equal to race times). The heat result, while imprecise, is still valid and displayable. |
 | `MSG_DISP_ADVANCE` TX failure | SC | Display advance is operator convenience only; operator can press Start again. |
 | `MSG_WINNER` TX failure | FC | Finish times are already on the FC display. SC retries once then shows no win lights; the heat result is preserved on the FC side. |
 
@@ -36,7 +36,7 @@ A result is untrustworthy when a required data dependency was permanently lost â
 
 `MSG_ERROR` is an abort notification, not a general-purpose warning channel. When SC calls `txError()` before `forceIdle()`, it serves as a best-effort "I am aborting" signal to FC. FC that receives `MSG_ERROR` calls `forceIdle()` to stay in sync.
 
-**Asymmetry:** SC does **not** forceIdle on `rx.lastErrorCode`. This is intentional â€” FC currently only sends `MSG_ERROR` as the P1-8 reaction-time warning, which is informational and does not require SC to abort. No current FC code path sends `MSG_ERROR` as a halt signal. If that changes in the future, the convention must be updated here and the SC loop must add a `lastErrorCode` check.
+**Asymmetry:** SC does **not** forceIdle on `rx.lastErrorCode`. This is intentional â€” FC currently only sends `MSG_ERROR` as the missing-reaction-time warning, which is informational and does not require SC to abort. No current FC code path sends `MSG_ERROR` as a halt signal. If that changes in the future, the convention must be updated here and the SC loop must add a `lastErrorCode` check.
 
 ### Known over-conservatism: MSG_FOUL in GATEDROP mode
 
@@ -52,4 +52,4 @@ When the Race Manager (BLE, feature-raceManager branch) is implemented, every `f
 
 - Any new abort condition must be evaluated against the "untrustworthy result" criterion before adding a `forceIdle()` call.
 - `MSG_ERROR` must not be used as a soft-warning channel if the receiver calls `forceIdle()` on all errors. Either differentiate severity levels or keep `MSG_ERROR` = abort signal.
-- The `criticalTxError` variable in both controllers is dead code (P2-33) left over from before this abort design was established. It should be removed.
+- The `criticalTxError` variable in both controllers is dead code left over from before this abort design was established. It should be removed (tracked in the project backlog).

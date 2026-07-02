@@ -10,12 +10,12 @@ Do this at your desk before touching hardware.
 
 - [ ] `startController` compiles clean, zero warnings
 - [ ] `finishController` compiles clean, zero warnings
-- [ ] All P0 and P1 code items in `.claude/backlog.md` are resolved or explicitly accepted
+- [ ] All critical and high-priority items in the project backlog are resolved or explicitly accepted
 - [ ] Fresh flash to both controllers from the same build
 
 ---
 
-## 2. Bench — Sensor Verification (P1-14)
+## 2. Bench — Sensor Verification
 
 Wire one SE61 sensor to A0 or A1 on the FC. Power the sensor. Confirm with serial monitor.
 
@@ -27,7 +27,7 @@ Wire one SE61 sensor to A0 or A1 on the FC. Power the sensor. Confirm with seria
 
 ---
 
-## 3. Bench — Display Verification (P1-15)
+## 3. Bench — Display Verification
 
 Connect one MC14543B + 74HC238 + display assembly. Power it. Confirm visually.
 
@@ -97,7 +97,7 @@ Run at least one complete heat in each mode, end to end.
 - [ ] Full dry run: 4–6 back-to-back heats across multiple modes, no errors
 - [ ] Laptop on-site with `arduino-cli` and both `.ino` files ready for emergency reflash
 - [ ] USB cables for both Nanos packed
-- [ ] `.claude/backlog.md` reviewed — no surprise open P1s
+- [ ] Project backlog reviewed — no surprise open high-priority items
 
 ---
 
@@ -105,7 +105,7 @@ Run at least one complete heat in each mode, end to end.
 
 These are documented decisions, not forgotten items:
 
-- **No software COUNTDOWN abort** (P1-9) — Mode button is not checked during countdown. Recovery is to let the heat DNF naturally. Power cycle recovers a truly hung countdown (not yet observed).
+- **No software COUNTDOWN abort** — Mode button is not checked during countdown. Recovery is to let the heat DNF naturally. Power cycle recovers a truly hung countdown (not yet observed).
 - **No Race Manager** — Win/loss is read from the FC display and lights. Bracket tracking is manual.
 - **No RFID** — Car identification is visual. Lane assignment is by physical position.
 - **Display resolution is 1 ms** — Sub-millisecond timing differences are rounded. This is typical for pinewood derby.

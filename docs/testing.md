@@ -74,7 +74,7 @@ Full wiring diagram, command reference, and test protocol: `firmware/fwTest/derb
 
 ## See Also
 
-- **Two-board integration bench protocol (P1-19): [docs/bench-test-protocol.md](bench-test-protocol.md)** -- staged bring-up checklist, FTDI tap/simulator wiring, symptom table
+- **Two-board integration bench protocol: [docs/bench-test-protocol.md](bench-test-protocol.md)** -- staged bring-up checklist, FTDI tap/simulator wiring, symptom table
 - Race self-test result codes: [docs/race-test-codes.md](race-test-codes.md)
 - Hardware test procedures: [hardware/hwTest/](../hardware/hwTest/)
 - Wire protocol byte-level reference: [docs/protocol.md](protocol.md)

@@ -125,7 +125,7 @@ The Nano 33 BLE includes a Nordic BLE radio. The BLE protocol and characteristic
 
 * **Confirm display wiring** – Verify that PIN_LANE1/PIN_LANE2 active‑low logic matches the 74HC238 enable wiring on your shield. Confirm that BCD 0xF blanks the display on your MC14543B revision.
 * **Implement BLE** – Define a BLE GATT service to transmit race results and, if desired, receive configuration commands from the race manager. Ensure BLE callbacks do not block timing‑critical sections.
-* **RFID car ID** – Car identification is deferred to the `feature-rfid` branch (P3-1, P3-2). `LaneResult` will need a `carID` field once RFID is implemented.
+* **RFID car ID** – Car identification is deferred to the `feature-rfid` branch. `LaneResult` will need a `carID` field once RFID is implemented.
 
 ---
 

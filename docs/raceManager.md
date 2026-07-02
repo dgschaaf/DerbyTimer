@@ -198,7 +198,7 @@ RFID is read by the Start Controller and relayed SC → FC → RM via the BLE Ca
 4. RM receives the Car ID and associates it with the currently selected racer record
 5. Confirmation displayed; racer is marked as checked in
 
-> RFID is a separate major feature branch (firmware P1-1 + P2-2) assumed to be merged before raceManager work begins. RFID car ID format is TBD — it affects the `BLEHeatResult` struct and GATT characteristic sizing.
+> RFID is a separate major feature branch assumed to be merged before raceManager work begins. RFID car ID format is TBD — it affects the `BLEHeatResult` struct and GATT characteristic sizing.
 
 ### Check-In
 
@@ -425,7 +425,7 @@ A USB camera connected to the RPi (not practical on the Arduino) would enable:
 
 ### Test Mode (from Race Manager)
 
-RM-initiated hardware test: send Initiate Test to FC when `RACE_IDLE`, display test results on-screen. Details TBD pending `RACE_TEST` firmware implementation (P1-3).
+RM-initiated hardware test: send Initiate Test to FC when `RACE_IDLE`, display test results on-screen. The `RACE_TEST` self-test itself is implemented in firmware; what remains TBD is the BLE Initiate Test / Test Result characteristic design.
 
 ---
 
@@ -530,7 +530,6 @@ Configurable per event (stored with the session, not globally):
 - [ ] Implement writable characteristics: Set Mode and Initiate Test; guard with `RACE_IDLE` check
 - [ ] BLE connection event handler; `bleConnected` flag
 - [ ] Validate BLE notify timing does not interfere with display ISR (30 µs settle)
-- [ ] Reference: `.claude/backlog.md` P3 (feature-raceManager section)
 
 ### Phase 2 — Race Manager Skeleton (RPi)
 
@@ -590,5 +589,5 @@ Configurable per event (stored with the session, not globally):
 | --- | --- | --- |
 | BLE GATT service defined on FC | Not started | All of Phase 1 and everything after |
 | Application framework decision (OQ-RM1) | Needs research | All of Phase 2 |
-| RFID firmware branch (P1-1, P2-2) | Not started — own branch | RFID pairing at check-in; Car ID verification in bracket; assumed merged before raceManager branch |
-| Reaction time sentinel fixed (P1-4) | Not started | Correct reaction time in BLE payload |
+| RFID firmware branch | Not started — own branch | RFID pairing at check-in; Car ID verification in bracket; assumed merged before raceManager branch |
+| Reaction-time "not applicable" sentinel fixed in firmware | Not started | Correct reaction time in BLE payload |

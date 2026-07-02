@@ -1,4 +1,4 @@
-# Bench Test Protocol: Two-Board Integration (P1-19)
+# Bench Test Protocol: Two-Board Integration
 
 Standalone procedure for bringing up and verifying the Start Controller (SC)
 and Finish Controller (FC) together on the bench. Written to be followed
@@ -217,9 +217,9 @@ oddities (time skew, retry noise in the tap log), firmware commit hash.
 | SC Phase-0 ping fails (code 107) | TX/RX crossed at J5/J2, missing GND, cable unseated. Tap each line (3a) to find the silent direction. |
 | SC GO light goes dark seconds after GO, heat dies | Stale-state regression (serviceRx) -- check FC debug for an unexpected `->IDLE`; tap SC->FC line for a spurious MSG_RACE_STATE. |
 | FC never arms / no finish times | MSG_RACE_START not arriving: watch FC debug at GO; tap the SC-TX line for ID 0x05 at GO. |
-| Times look uniformly long/short by tens of ms | RACE_START retries delaying t0 -- tap log will show repeated 0x05 sends; check cable integrity (P2-36). |
+| Times look uniformly long/short by tens of ms | RACE_START retries delaying t0 -- tap log will show repeated 0x05 sends; check cable integrity. |
 | Reaction times missing (car times = race times) | FC debug shows the missing-react warning; tap SC-TX for MSG_LEFT/RIGHT_REACT after GO; in GATEDROP mode this is normal. |
 | Fouled lane shows a time instead of blank | Foul flag lost -- FC debug should show `rx foul:` at RACING entry; tap for MSG_FOUL (ID 0x09). |
-| Garbage on the displays / NACK storms in the tap log | Wire corruption: shorten the cable, check GND, consider baud drop test (P2-36). |
+| Garbage on the displays / NACK storms in the tap log | Wire corruption: shorten the cable, check GND, try a lower baud rate as a diagnostic. |
 | SC won't flash / upload errors | Comm cable still connected to J5 -- disconnect it (hard rule, section 1). |
 | One direction silent in taps but boards seem half-working | One conductor broken in the cable; ACKs vanish -> every message retries 4x then fails. |
