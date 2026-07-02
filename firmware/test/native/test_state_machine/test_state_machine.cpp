@@ -227,43 +227,6 @@ void test_forceidle_take_entry_once_no_exit() {
     TEST_ASSERT_FALSE(sm.takeExit());
 }
 
-// Equivalence: request+service must be wire- and state-identical to the old
-// handler ritual (serviceRx / guard / selfTransition). Same scenario through
-// both interfaces; compare everything that leaves the machine.
-static void runOldRitual(stateMachine& sm, raceState goal) {
-    rxSerial();
-    sm.serviceRx();
-    if (goal != sm.current) sm.selfTransition(goal);
-    txService();
-}
-
-void test_request_service_matches_old_interface() {
-    // Old interface: IDLE -> STAGING with an ACK after the first send
-    stateMachine oldSm = {}; oldSm.current = RACE_IDLE;
-    runOldRitual(oldSm, RACE_STAGING);
-    feedAck(MSG_RACE_STATE);
-    runOldRitual(oldSm, RACE_STAGING);
-    uint8_t oldWire[8]; int oldWireLen = Serial.txLen;
-    memcpy(oldWire, Serial.txBuf, (size_t)oldWireLen);
-    raceState oldCurrent = oldSm.current;
-    bool oldEntry = oldSm.entry, oldExit = oldSm.exit;
-
-    resetComm();
-
-    // New interface: same scenario
-    stateMachine newSm = {}; newSm.current = RACE_IDLE;
-    newSm.request(RACE_STAGING);
-    loopOnce(newSm);
-    feedAck(MSG_RACE_STATE);
-    loopOnce(newSm);
-
-    TEST_ASSERT_EQUAL_INT(oldWireLen, Serial.txLen);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(oldWire, Serial.txBuf, oldWireLen);
-    TEST_ASSERT_EQUAL(oldCurrent, newSm.current);
-    TEST_ASSERT_EQUAL(oldEntry, newSm.entry);
-    TEST_ASSERT_EQUAL(oldExit, newSm.exit);
-}
-
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_idle_to_staging_allowed);
@@ -286,6 +249,5 @@ int main(int argc, char **argv) {
     RUN_TEST(test_holdrx_defers_edge_without_discarding);
     RUN_TEST(test_stale_exit_not_inherited_by_next_state);
     RUN_TEST(test_forceidle_take_entry_once_no_exit);
-    RUN_TEST(test_request_service_matches_old_interface);
     return UNITY_END();
 }

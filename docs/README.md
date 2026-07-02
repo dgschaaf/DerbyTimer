@@ -37,6 +37,7 @@ re-litigated.
 | [ADR-0003](adr/ADR-0003-tx-fifo-queue-design.md) | TX FIFO queue with a single in-flight message |
 | [ADR-0004](adr/ADR-0004-heat-abort-criteria.md) | Heat abort criteria and forceIdle semantics |
 | [ADR-0005](adr/ADR-0005-serial-protocol-structure.md) | Serial protocol structure: framing, ACK/NACK discipline, baud choice |
+| [ADR-0006](adr/ADR-0006-statemachine-service-model-and-outbox.md) | State machine declare-intent interface (request/service) and shared Outbox direction |
 
 ## Diagrams ([diagrams/](diagrams/))
 

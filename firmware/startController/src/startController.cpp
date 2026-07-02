@@ -50,6 +50,9 @@ struct modeSelect {
 		}
 	}
 
+// Internal mechanics -- reachable only through service(), mirroring the
+// shared stateMachine (see docs/adr/ADR-0006).
+private:
 	void selfTransition(raceMode newMode) {
 		// 1. Check if already in target state
         if (current == newMode) {
@@ -103,6 +106,7 @@ struct modeSelect {
 
 	}
 
+public:
 	// Declare-intent interface, mirroring stateMachine: request() records
 	// where the mode should go; service() consumes an unsolicited mode from
 	// the peer, then drives a pending request through send/ACK/commit.

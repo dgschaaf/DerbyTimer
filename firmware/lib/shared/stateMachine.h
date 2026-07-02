@@ -7,9 +7,13 @@
 // ---------------------------------------------------------------
 // State Machine Struct
 // ---------------------------------------------------------------
-// Shared by both controllers. Manages the allowed transition table,
-// initiator-driven (selfTransition) and follower-driven (rxTransition)
-// state changes, and entry/exit flag semantics.
+// Shared by both controllers. Public interface: request() declares where
+// the machine should go, service() drives it there once per handler pass,
+// takeEntry()/takeExit() expose one-shot entry/exit work, forceIdle() is
+// the abort path. The coordinated-transition mechanics (initiator-driven
+// selfTransition, follower-driven rxTransition) are private -- handlers
+// cannot reintroduce the manual ritual or its bug class. See
+// docs/adr/ADR-0006.
 //
 // Coordination model (who initiates each transition):
 //   IDLE      -> STAGING     : SC initiates, FC follows
@@ -42,6 +46,9 @@ struct stateMachine {
 		return allowed[current][next];
 	}
 
+// Internal mechanics -- reachable only through service(). Private member
+// functions do not affect aggregate initialization of the public fields.
+private:
 	void selfTransition(raceState newState) {
 		// 1. Reject illegal transitions
 		if (!allowedTransition(newState)) {
@@ -108,6 +115,7 @@ struct stateMachine {
 		exit    = true;
 	}
 
+public:
 	// ---- Declare-intent interface ----
 	// Handlers declare where the machine should go (request) and give it
 	// one chance per pass to get there (service). The coordinated-transition
