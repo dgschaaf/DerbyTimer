@@ -45,3 +45,9 @@ Payload bytes are captured into `TxTracker.payload[4]` at enqueue time. The publ
 - The single-in-flight constraint means a stuck message (e.g. repeated NACKs) blocks the queue until it reaches TX_FAILED. The `criticalTxError` path in both controllers handles this for messages where failure is unrecoverable.
 - Maximum payload size is 4 bytes (`sizeof(uint32_t)`). If a future message requires a larger payload, `TxTracker.payload` must be widened -- this is an internal change only.
 - The RFID UID message (planned) will use a longer payload; if the UID exceeds 4 bytes the payload field must be widened before that message is added.
+
+## Amendment (2026-07): txResend()
+
+`txResend(id)` re-enqueues a message from the payload bytes captured in its tracker slot at the original enqueue -- the payload-capture mechanism above is what makes a resend possible without the caller rebuilding (or retaining) the payload. It is permitted only from the failure statuses (TX_TIMEOUT / TX_FAILED); a message in flight, queued-but-unsent, never sent, or already ACKED is rejected. If the failed entry has not yet been dequeued (a caller checking outcomes in the same loop pass the failure was marked), it is rearmed in place with its retry counter reset -- a plain re-enqueue in that window would be rejected as a duplicate. MSG_RACE_START keeps its front-of-queue priority on resend.
+
+This amends the retry policy's "callers that want to retry after a timeout must re-enqueue the message explicitly": explicit retry is now expressed with `txResend()`, so retry POLICY can live outside the transport -- a policy layer says "send it again" without knowing how the bytes were built.

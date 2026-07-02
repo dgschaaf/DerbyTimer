@@ -192,6 +192,65 @@ void test_tx_single_in_flight() {
     TEST_ASSERT_EQUAL_INT(lenAfterFirst, Serial.txLen);
 }
 
+// ---------------- txResend ----------------
+
+void test_txresend_after_timeout_resends_identical_bytes() {
+    txWinner(winner_leftWin);
+    txService();                                   // original send
+    uint8_t orig[8]; int origLen = Serial.txLen;
+    memcpy(orig, Serial.txBuf, (size_t)origLen);
+    mockMillis += txTimeout + 1;
+    txService();                                   // marks TX_TIMEOUT
+    txService();                                   // dequeues the terminal entry
+    Serial.clearTx();
+    TEST_ASSERT_TRUE(txResend(MSG_WINNER));
+    txService();                                   // resend from captured payload
+    TEST_ASSERT_EQUAL_INT(origLen, Serial.txLen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(orig, Serial.txBuf, origLen);
+}
+
+void test_txresend_same_pass_as_timeout_detection() {
+    // The realistic caller window: a per-loop outcome check sees TX_TIMEOUT
+    // in the same pass txService() marked it, BEFORE the dequeue pass. The
+    // entry is still queued, so a plain re-enqueue would be rejected as a
+    // duplicate; txResend must rearm it in place instead.
+    txWinner(winner_tie);
+    txService();
+    mockMillis += txTimeout + 1;
+    txService();                                   // TX_TIMEOUT, still queued
+    TEST_ASSERT_TRUE(txResend(MSG_WINNER));
+    Serial.clearTx();
+    txService();                                   // resends
+    TEST_ASSERT_EQUAL_INT(2, Serial.txLen);
+    TEST_ASSERT_EQUAL_UINT8(MSG_WINNER, Serial.txBuf[0]);
+    TEST_ASSERT_EQUAL(TX_SENT, txStatusOf(MSG_WINNER));
+}
+
+void test_txresend_rejected_while_in_flight() {
+    txWinner(winner_leftWin);
+    txService();                                   // TX_SENT
+    TEST_ASSERT_FALSE(txResend(MSG_WINNER));
+}
+
+void test_txresend_rejected_for_never_sent_id() {
+    TEST_ASSERT_FALSE(txResend(MSG_WINNER));       // slot never used
+    TEST_ASSERT_FALSE(txResend(MSG_COUNT));        // out of range
+}
+
+void test_txresend_acks_to_acked_normally() {
+    txWinner(winner_rightWin);
+    txService();
+    mockMillis += txTimeout + 1;
+    txService();                                   // timeout
+    txService();                                   // dequeue
+    TEST_ASSERT_TRUE(txResend(MSG_WINNER));
+    txService();                                   // resend
+    uint8_t ack[] = { MSG_ACK, MSG_WINNER };
+    Serial.feed(ack, 2);
+    rxSerial();
+    TEST_ASSERT_EQUAL(TX_ACKED, txStatusOf(MSG_WINNER));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_rx_race_state_sets_value_flag_and_acks);
@@ -210,5 +269,10 @@ int main(int argc, char **argv) {
     RUN_TEST(test_tx_duplicate_enqueue_rejected);
     RUN_TEST(test_tx_payload_captured_at_enqueue);
     RUN_TEST(test_tx_single_in_flight);
+    RUN_TEST(test_txresend_after_timeout_resends_identical_bytes);
+    RUN_TEST(test_txresend_same_pass_as_timeout_detection);
+    RUN_TEST(test_txresend_rejected_while_in_flight);
+    RUN_TEST(test_txresend_rejected_for_never_sent_id);
+    RUN_TEST(test_txresend_acks_to_acked_normally);
     return UNITY_END();
 }

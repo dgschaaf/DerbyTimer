@@ -130,6 +130,15 @@ bool txWinner(uint8_t winner);
 bool txDisplayAdvance();
 bool txError(errCode err);
 
+// Re-enqueue a message from the payload captured at its original enqueue --
+// retry after TX_TIMEOUT/TX_FAILED without rebuilding (or retaining) the
+// payload. Returns true if rearmed or re-enqueued; false if the message is
+// in flight, queued-but-unsent, never sent, or ended TX_ACKED (resend is
+// for failures only). If the failed entry has not been dequeued yet it is
+// rearmed in place, so a resend issued in the same loop pass that detected
+// the failure still works. See the ADR-0003 amendment.
+bool txResend(serialMsgID id);
+
 // Query the current status of any outgoing message slot.
 txStatus txStatusOf(serialMsgID id);
 

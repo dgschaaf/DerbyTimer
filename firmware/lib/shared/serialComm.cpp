@@ -289,6 +289,30 @@ bool txError(errCode err) {
 	return enqueueMsg(MSG_ERROR, &e, 1, false);
 }
 
+bool txResend(serialMsgID id) {
+	if (id >= MSG_COUNT) return false;
+	TxTracker& s = txState[id];
+	if (s.status != TX_TIMEOUT && s.status != TX_FAILED) return false;
+
+	// Failure detected before txDrive() dequeued the terminal entry: it is
+	// still at the front of the queue with its payload intact, so rearm it
+	// in place. (Re-enqueueing here would be rejected as a duplicate.)
+	for (uint8_t i = 0; i < txQueueLen; i++) {
+		if (txQueue[i] == id) {
+			s.status  = TX_NONE;
+			s.retries = 0;
+			return true;
+		}
+	}
+
+	// Already dequeued: re-enqueue from the captured payload. Copy it out
+	// first -- enqueueMsg() zeroes the tracker slot before copying in.
+	uint8_t payload[sizeof(s.payload)];
+	uint8_t len = s.payloadLen;
+	memcpy(payload, s.payload, sizeof(payload));
+	return enqueueMsg(id, len > 0 ? payload : nullptr, len, id == MSG_RACE_START);
+}
+
 txStatus txStatusOf(serialMsgID id) {
 	if (id >= MSG_COUNT) return TX_NONE;
 	return txState[id].status;
