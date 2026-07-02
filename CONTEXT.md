@@ -12,6 +12,10 @@ _Avoid_: Race (as a synonym for heat), run
 A full race night consisting of multiple heats across time trials and a bracket.
 _Avoid_: Race night, tournament, derby (as a synonym for event)
 
+**Session**:
+The Race Manager's persisted state for one Event -- roster, cars, runs, bracket position -- saved continuously so a power loss or accidental exit is recoverable. Sessions are identified by date/time plus an optional friendly name, and are retained after the Event completes (never silently deleted) so an accidental "End Race" or "New Race" can be undone by resuming the old session. Deleting old sessions is a deliberate operator action.
+_Avoid_: Save file, autosave, race day state
+
 **Race Time** (`raceTimeUs`):
 Elapsed time from the GO signal to the car crossing the finish line. The race clock.
 _Avoid_: Finish time, raw time
@@ -47,6 +51,10 @@ _Avoid_: Racer (when referring to what's on the track or in results)
 **Racer**:
 The person behind the car. Used only when referring explicitly to name, personal identity, lifetime records, or club membership. A racer has a different car each year; the car is the annual entity, the racer is the persistent one.
 _Avoid_: Car (when referring to the person's name or persistent identity)
+
+**Car ID**:
+The identifier read from the random RFID sticker given to each car at check-in. Scoped to a single Session: it must survive power resets and session resume within the race night, but it is not a durable identifier -- next year the same racer gets a new sticker and a new Car ID. Pairing Car ID to Car happens at check-in.
+_Avoid_: RFID tag (the sticker is the tag; the Car ID is the value), car number (the painted-on number, a different field)
 
 **Trigger**:
 A handheld momentary push-button on a cable (~6 ft), approximately the size of a can of pop. There are three triggers: Left (driver), Right (driver), and Starter (race official). Hardware-debounced via Schmitt triggers on the PCB shield. In the firmware the Left and Right triggers are referred to as "buttons" (`isLeftPressed()`, `isRightPressed()`); the Starter trigger is `isStartPressed()`. All three are press-and-release (no hold required).

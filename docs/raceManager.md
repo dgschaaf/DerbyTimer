@@ -3,7 +3,7 @@
 > **Status:** Planning -- not yet implemented. `firmware/raceManager/` is a stub placeholder.
 > This document captures the intended design and serves as the planning baseline for implementation.
 >
-> **Branch strategy:** raceManager is its own major feature branch. RFID firmware (a separate major feature branch) is a prerequisite and is assumed to be merged before raceManager work begins.
+> **Branch strategy:** raceManager is its own major feature branch (`feature-raceManager`). RFID firmware (a separate major feature branch) is NOT a prerequisite: the Race Manager treats manual car matching (operator selects which cars are on the track) as a first-class workflow, and RFID-based Car ID matching layers on top of it later. The manual path doubles as the degraded mode if RFID fails on race night.
 
 ---
 
@@ -97,8 +97,9 @@ struct BLEHeatResult {
     uint32_t carTimeUsRight;
     uint32_t raceTimeUsLeft;        // Raw sensor time, us
     uint32_t raceTimeUsRight;
-    uint32_t reactionTimeUsLeft;    // us; see OQ-RM4 for how to signal "not applicable"
+    uint32_t reactionTimeUsLeft;    // us; meaningful only if flagged in reactionValidMask
     uint32_t reactionTimeUsRight;
+    uint8_t  reactionValidMask;     // bit0 = left reaction meaningful, bit1 = right (OQ-RM4, resolved)
     uint8_t  foulMask;              // bit0 = left foul, bit1 = right foul
     uint8_t  winnerMask;            // bit0 = left wins, bit1 = right wins, bit2 = tie, bit3 = no result (double foul / aborted)
 };
@@ -109,7 +110,7 @@ struct BLEHeatResult {
 // as coaching feedback. Use foulMask to determine which lanes to label accordingly.
 ```
 
-> **OQ-RM4** -- How should the BLE payload signal that reaction time is not applicable? Three candidates: (a) match the firmware's `reactionValidMask` pattern (`uint8_t`, bit0=left valid, bit1=right valid); (b) rely on `foulMask` + mode -- a foul lane has no reaction time, and GATEDROP mode has no reaction times at all, so the Race Manager can infer validity without an extra field; (c) decide based on BLE best practices once the GATT layer is being designed. Defer to Phase 1.
+> **OQ-RM4 (resolved)** -- Reaction-time validity is signaled by an explicit `reactionValidMask` byte (bit0 = left meaningful, bit1 = right). Inference from `foulMask` + mode was rejected because a reaction message lost on the UART link reads as 0 -- indistinguishable from a genuine 0.000 s reaction, which would put a false time in the database. A foul lane's reaction time IS valid (it is the early-jump coaching value). No such mask exists in firmware yet; creating it is part of the firmware BLE milestone.
 
 This mirrors data already computed in `finishController.cpp` `RACE_COMPLETE`.
 
@@ -123,9 +124,9 @@ This mirrors data already computed in `finishController.cpp` `RACE_COMPLETE`.
 
 ## Application Platform and Startup
 
-### Technology Choice (Needs Research -- OQ-RM1)
+### Technology Choice (Resolved -- OQ-RM1)
 
-The application needs to be a full-screen GUI running natively on the Pi. Framework candidates include Python-native (pygame, tkinter, PyQt), Node.js/Electron, or a web app served to a Chromium kiosk. No decision has been made -- research required before Phase 2 begins. Key constraints: full-screen kiosk capability, BLE central role support, bracket/tree rendering, SQLite access, and reasonable performance on a Pi 4/5.
+**Python backend + web UI in Chromium kiosk mode.** The backend (Python) owns BLE central (`bleak`), SQLite persistence, and race logic; the frontend is HTML/CSS/JS served locally and displayed full-screen by Chromium `--kiosk` on the Pi. Rationale: bracket trees, roster grids, and celebration reveal screens are far easier to build well in HTML/CSS than in desktop GUI toolkits, and the whole application can be developed and tested on a Windows PC in a normal browser -- no Pi or track hardware required until deployment. Accepted tradeoff: two-language stack (Python + JS). The Pi is reachable over Ethernet/SSH on the home network, so later-stage development can run on the Pi directly.
 
 ### Kiosk Auto-Launch
 
@@ -170,23 +171,9 @@ Racers are entered before racing begins. Three entry paths:
 2. **CSV import** -- Upload a CSV with columns for name and car number (plus optional age/grade). Import screen shows a preview and flags duplicates.
 3. **Previous year's roster** -- Load from the persistent database (typically ~80% of names carry over). Operator marks returning vs. new racers, removes departed ones, and adds new entries.
 
-### Racer Record (at entry time)
+### Records Created at Entry Time
 
-```
-Racer {
-    id              : int          // Internal ID, auto-assigned
-    name            : string
-    carNumber       : int          // May change year to year
-    grade           : int?         // Age/grade -- optional; changes each year so not a stable identifier
-                                   // Consider storing graduating class year and back-calculating grade for display
-                                   // Or omit entirely -- not essential
-    rfidCarID       : bytes?       // Assigned via RFID pairing at check-in; format TBD
-    photoPath       : string?      // USB camera capture (deferred)
-    carPhotoPath    : string?      // USB camera capture (deferred)
-    present         : bool         // Checked in
-    year            : int          // Race year
-}
-```
+Roster entry creates (or, for returning racers, reuses) a persistent **Racer** record and always creates a fresh annual **Car** record for this year -- name and photo live on the Racer; carNumber, grade, rfidCarID, car photo, and check-in state live on the Car. Field-level definitions are in [Persistent Database](#persistent-database).
 
 ### RFID Car Pairing
 
@@ -241,6 +228,14 @@ The main panel shows a roster-style grid with one row per racer:
 ### Car Currently Racing
 
 When the FC sends Car IDs (staging state), the two matching racer rows are **highlighted** on the time trial grid so the operator can see who is on the track.
+
+### Manual Car Matching (primary until RFID lands; fallback forever)
+
+The operator **pre-selects** the next pairing on the roster grid before the heat runs ("next up: #12 left lane, #7 right lane"). The incoming heat result auto-attaches to the pre-selected cars; mistakes are corrected with the normal edit tools. This mirrors the future RFID staging flow exactly -- RFID merely fills the pairing in automatically -- so the UI and attribution data path do not change when RFID lands. In Bracket mode the current matchup already is the pre-selection. If RFID fails on race night, manual pre-select is the degraded mode.
+
+### Solo Runs
+
+A time-trial heat may run with a single car (odd roster count, make-up runs). The operator pre-selects one car plus an empty lane; the empty lane times out on the track and its maxRaceTimeUs DNF result is **auto-discarded** -- no run is recorded for the empty lane. Bracket heats always have two cars (a missing opponent is a Bye, not a solo heat). Bench verification that an empty lane stages and completes normally in GATEDROP mode belongs to the hardware-integration milestone.
 
 ### Full Runs
 
@@ -459,25 +454,42 @@ At any time after heats are run (and required after Race Day Complete):
 
 Results are saved locally on the RPi (SQLite is a natural fit). The database persists across sessions and years.
 
-### Racer Record (persistent)
+The schema follows the glossary split (OQ-RM5, resolved): the **Racer** is the persistent person, the **Car** is the annual racing entity. Heat results reference Cars, not Racers; lifetime records roll up through Car -> Racer.
 
-```
+### Racer Record (persistent, one per person across years)
+
+```text
 Racer {
     id              : int
     name            : string
-    carNumber       : int          // May change year to year; stored per season result
-    grade           : int?         // Optional; see note in Racer Record above
     photoPath       : string?      // Deferred
-    carPhotoPath    : string?      // Deferred
 }
 ```
 
-### Season Record (per year)
+### Car Record (annual, one per racer per session/year)
 
-```
-SeasonResult {
+```text
+Car {
+    id              : int
     racerID         : int          // FK -> Racer
     year            : int
+    carNumber       : int          // Painted-on number; may change year to year
+    grade           : int?         // Optional; OQ-RM3 resolved: grade is annual, so it
+                                   // lives here; returning-roster import prefills
+                                   // last year's grade + 1 for confirmation
+    rfidCarID       : bytes?       // Session-scoped Car ID from the random RFID sticker
+                                   // assigned at check-in; survives session resume;
+                                   // NOT a durable cross-year identifier
+    carPhotoPath    : string?      // Deferred
+    present         : bool         // Checked in
+}
+```
+
+### Season Record (per car = per racer per year)
+
+```text
+SeasonResult {
+    carID           : int          // FK -> Car
     bestTimeTrial   : us?          // Best time trial time
     timeTrialPlace  : int?         // 1st, 2nd, 3rd, etc.
     bracketPlace    : int?         // 1 = winner, 2 = runner-up, etc.
@@ -489,14 +501,14 @@ SeasonResult {
 
 ### Heat Record
 
-```
+```text
 HeatResult {
     id              : int
-    year            : int
+    sessionID       : int          // FK -> Session
     mode            : enum (TimeTrial, Bracket, Practice)
     heatSeq         : int          // Heat number within the event
-    leftRacerID     : int?         // FK -> Racer; null if car ID not matched
-    rightRacerID    : int?
+    leftCarID       : int?         // FK -> Car; null if car not matched
+    rightCarID      : int?
     leftCarTime     : us
     rightCarTime    : us
     leftReactTime   : us?          // null in GATEDROP mode
@@ -507,6 +519,10 @@ HeatResult {
     notes           : string?      // Operator edit notes
 }
 ```
+
+### Session Retention
+
+A Session (see CONTEXT.md) is identified by date/time plus an optional operator-entered friendly name. Completed and abandoned sessions are **retained, never auto-deleted** -- storage is cheap and retention makes an accidental "End Race" or "New Race" recoverable by resuming the old session. A GUI screen for browsing and deleting old sessions is a low-priority backlog feature; until it exists, cleanup is a manual filesystem task on the Pi.
 
 ---
 
@@ -521,53 +537,84 @@ Configurable per event (stored with the session, not globally):
 
 ---
 
+## Testing and Verification
+
+Development is largely unattended (agents working GitHub Issues), so every work item needs machine-checkable proof. The stack mirrors the firmware's L2 desktop tests:
+
+- **pytest suite** over all race logic: bracket generation and seeding, car matching, session save/resume, standings, time trial completion rules. No BLE, browser, or Pi required.
+- **Race-day simulation**: the Mock Finish Controller replays a scripted full event (roster -> check-in -> time trials -> bracket -> race day complete) end-to-end; the test asserts the final database contents.
+- **UI review is human**: screenshots and browser walkthroughs at review checkpoints. No browser-automation suite -- the UI stays thin, with all decisions in the tested backend.
+
+To make the mock swappable for real hardware, the backend talks to the Finish Controller through a single link interface; the Mock Finish Controller and the real BLE central (`bleak`) are two implementations of it. Nothing above the link layer knows which one is connected.
+
+---
+
 ## Implementation Phases
 
-### Phase 1 -- BLE Foundation (Firmware, prerequisite)
+Development is mock-first: milestones M0-M7 run entirely on a development PC against the Mock Finish Controller, with pytest proof (see Testing and Verification). Firmware work (M8) waits for the AD architecture slices to land in main. After M4 the system can already run a real time-trial-only race night once M8/M9 exist -- a usable fallback checkpoint.
 
-- [ ] Define GATT service UUID and characteristic UUIDs in `finishController.cpp`
-- [ ] Implement `notifyBLEState()`, `notifyBLECarIDs()`, `notifyBLEResult()`, heartbeat at placeholder sites
-- [ ] Implement writable characteristics: Set Mode and Initiate Test; guard with `RACE_IDLE` check
-- [ ] BLE connection event handler; `bleConnected` flag
-- [ ] Validate BLE notify timing does not interfere with display ISR (30 us settle)
+### M0 -- Contract and Scaffold
 
-### Phase 2 -- Race Manager Skeleton (RPi)
+- [ ] Freeze GATT contract v1 on paper (UUIDs, characteristic table, payload structs) -- the shared reference for mock, app, and firmware
+- [ ] Python project scaffold in `software/raceManager/` with pytest wired
+- [ ] Retire the two pre-design stub scripts in `software/raceManager/src/`
 
-- [ ] Decide application framework (see OQ-RM1)
-- [ ] Implement BLE central via Python `bleak`; connect by service UUID; subscribe to all notifies
-- [ ] Kiosk auto-launch at boot (systemd service or autostart)
-- [ ] Power-on menu: Continue / New Race / Practice / Test / Quit to OS
-- [ ] Log raw BLE events to console -- validate full data path end-to-end
+### M1 -- Mock Finish Controller and Event Log
 
-### Phase 3 -- Roster and Time Trial
+- [ ] FC link interface (the seam where mock and real BLE are interchangeable)
+- [ ] Mock Finish Controller: replays scripted race states, Car IDs, and heat results
+- [ ] Bare app that subscribes to the link and logs the event stream -- proves the data path
 
-- [ ] Racer entry: manual, CSV import, previous year import from database
-- [ ] RFID pairing workflow at check-in (prerequisite: RFID firmware branch merged)
-- [ ] Settings UI (runs per car)
-- [ ] Time trial grid: runs, best, last, trend, color for completed rows
-- [ ] Car ID -> racer row highlighting during staging
-- [ ] Full-runs error/warning when car ID is already complete
-- [ ] Time trial places calculation (hidden until reveal)
+### M2 -- Session and Database Core
 
-### Phase 4 -- Bracket and Staging Screen
+- [ ] SQLite schema: Racer, Car, Session, HeatResult (see Persistent Database)
+- [ ] Session create / continuous save / resume; retention policy (never auto-delete)
+- [ ] Power-on menu logic: Continue / New Race / Practice / Quit
 
-- [ ] Bracket generation (single elimination, seeded from time trial if available)
-- [ ] Bracket screen: tree display, current/on-deck markings
-- [ ] Car ID verification against scheduled matchup; out-of-order flexibility
-- [ ] Staging / matchup reveal screen (full-screen with names and car photos)
-- [ ] Bye / forfeit handling
-- [ ] Foul logic (DQ, re-race on double foul)
-- [ ] Manual winner override
+### M3 -- Roster and Check-In (no RFID)
 
-### Phase 5 -- Race Day Complete and Database
+- [ ] Manual entry, CSV import with preview and duplicate flagging
+- [ ] Previous-year roster import; grade prefill (last year + 1)
+- [ ] Check-in marking; Settings UI (runs per car, Best in Show divisions)
 
-- [ ] Race Day Complete flow: standings calculation, celebration reveal screen
-- [ ] Best in Show entry
-- [ ] Persistent SQLite database: season records, heat history, multi-year racer records
-- [ ] Previous year roster import from database
-- [ ] Export to CSV
-- [ ] Practice mode toggle from within a race day session
-- [ ] PDF export (stretch)
+### M4 -- Time Trial
+
+- [ ] Time trial grid: runs, best, last, trend, completed-row styling
+- [ ] Manual pre-select matching; solo runs (empty-lane DNF auto-discard)
+- [ ] Full-runs warning and override; time edits with logging
+- [ ] Places calculation (hidden until reveal); Practice mode (no DB writes)
+
+### M5 -- Bracket
+
+- [ ] Bracket generation: single elimination, seeding, byes to top seeds
+- [ ] Bracket tree screen: current / on-deck / completed markings
+- [ ] Foul rules (DQ, double-foul rerun), Bye/forfeit, manual winner override
+- [ ] Staging / matchup reveal screen; car verification against the scheduled matchup
+
+### M6 -- Race Day Complete
+
+- [ ] Standings: time trial places, bracket places, best reaction time
+- [ ] Celebration reveal screen (operator-advanced); Best in Show entry
+- [ ] CSV export (PDF stretch)
+
+### M7 -- Kiosk Deployment (any time after M2)
+
+- [ ] Pi setup: auto-launch at boot (systemd or autostart), Chromium kiosk mode
+- [ ] Quit to Desktop and Shutdown actions
+
+### M8 -- Firmware BLE (hands-on; after AD slices land in main)
+
+- [ ] Update branch from main once AD slices are merged
+- [ ] GATT service and characteristics on the Nano 33 BLE per the frozen contract
+- [ ] `reactionValidMask` in heat-result path (OQ-RM4)
+- [ ] Set Mode / Initiate Test write guards (`RACE_IDLE` only); heartbeat
+- [ ] Validate BLE notify timing against the display ISR (30 us digit settle)
+
+### M9 -- Hardware Integration
+
+- [ ] Real BLE link implementation (`bleak`) behind the M1 interface
+- [ ] End-to-end bench test: two boards + Pi, full mock-scripted scenario replayed for real
+- [ ] Empty-lane GATEDROP heat verified on the bench (solo-run support)
 
 ---
 
@@ -575,11 +622,11 @@ Configurable per event (stored with the session, not globally):
 
 | # | Question | Why it matters |
 | --- | --- | --- |
-| OQ-RM1 | What application framework? Needs research -- no decision made. | Drives all of Phase 2 architecture; must be resolved before coding begins |
+| OQ-RM1 | ~~What application framework?~~ **Resolved:** Python backend + web UI in Chromium kiosk (see Technology Choice). | Drives all RPi application architecture |
 | OQ-RM2 | RFID car ID format -- single byte, multi-byte UID, other? | Affects `BLEHeatResult` struct and GATT characteristic sizing; resolved when RFID branch is designed |
-| OQ-RM3 | Grade/age field: store graduating class and back-calculate, store raw grade, or omit entirely? | Low urgency; doesn't affect race logic |
-| OQ-RM4 | BLE payload: how to signal reaction time "not applicable"? Candidates: (a) `reactionValidMask` byte matching firmware pattern; (b) infer from `foulMask` + mode -- no extra field needed; (c) decide when designing the GATT layer. Defer to Phase 1. | Affects `BLEHeatResult` struct size and Race Manager parsing logic |
-| OQ-RM5 | Schema: should the `Racer` record be split into a persistent `Person` (name, lifetime records) and an annual `Car` (carNumber, rfidCarID, year)? Current schema conflates both. A racer has a different car each year; car is the annual entity, racer is the persistent one. Low urgency -- resolve when beginning database design in Phase 5. | Affects foreign key structure in `HeatResult` and `SeasonResult`; name display throughout UI |
+| OQ-RM3 | ~~Grade/age field: where and how?~~ **Resolved:** optional grade on the annual Car record (grade is a per-year fact); returning-roster import prefills last year's grade + 1. Needed for Best in Show division assignment. | Low urgency; doesn't affect race logic |
+| OQ-RM4 | ~~How to signal reaction time "not applicable"?~~ **Resolved:** explicit `reactionValidMask` byte in `BLEHeatResult`; see Heat Result Payload. | Affects `BLEHeatResult` struct size and Race Manager parsing logic |
+| OQ-RM5 | ~~Split Racer into persistent person + annual car?~~ **Resolved:** split per the glossary -- persistent `Racer` (person) + annual `Car` (carNumber, rfidCarID, year); heat results reference Cars. See Persistent Database. | Affects foreign key structure in `HeatResult` and `SeasonResult`; name display throughout UI |
 
 ---
 
@@ -587,7 +634,9 @@ Configurable per event (stored with the session, not globally):
 
 | Item | Status | Blocks |
 | --- | --- | --- |
-| BLE GATT service defined on FC | Not started | All of Phase 1 and everything after |
-| Application framework decision (OQ-RM1) | Needs research | All of Phase 2 |
-| RFID firmware branch | Not started -- own branch | RFID pairing at check-in; Car ID verification in bracket; assumed merged before raceManager branch |
-| Reaction-time "not applicable" sentinel fixed in firmware | Not started | Correct reaction time in BLE payload |
+| GATT contract defined on paper | Not started | Mock Finish Controller; all RPi application work |
+| Mock Finish Controller (fake BLE peripheral emitting scripted race states and heat results) | Not started | RPi application development without firmware or track hardware |
+| BLE GATT service implemented on FC firmware | Deferred until the AD architecture slices land in main and are pulled into this branch (avoids merge conflicts in finishController) | End-to-end hardware validation only -- NOT RPi development, which runs against the mock |
+| Application framework decision (OQ-RM1) | Needs research | All RPi application coding |
+| RFID firmware branch | Not started -- own branch; NOT a prerequisite (manual car matching is first-class) | RFID pairing at check-in only |
+| `reactionValidMask` added to firmware (OQ-RM4) | Not started -- part of the firmware BLE milestone | Correct reaction-time validity in BLE payload |
