@@ -1,6 +1,8 @@
 # RACE_TEST Failure Code Reference
 
-Print this sheet and store it with the timer hardware.
+Print this sheet and store it with the timer hardware. The codes are defined
+by the RACE_TEST implementation in the firmware -- reprint this sheet if they
+change.
 
 ## Entry
 

@@ -1,7 +1,7 @@
 # Derby Track Start Controller System
-Version: 1.0
-Author: Darren Schaaf
-Date: December 2025
+
+> As-built design reference. The firmware in `firmware/startController/src/` is
+> authoritative; this document explains the design and the reasoning behind it.
 
 ### System Overview
 
@@ -168,11 +168,11 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 * `"future:"` comments in source mark planned features
 * State visibility through `stm.current` and `md.current` locals
 
-#### Testing Recommendations
-1. Light test pattern on startup
-2. Gate cycling verification (return solenoid resets to park)
-3. Serial loopback using fwTest/ sketches (derbySerialTester + derbySerialResponder)
-4. Timing accuracy validation with reaction-time simulation
+#### Testing
+See [testing.md](testing.md) for the layered test strategy (static analysis
+through on-hardware self-test) and
+[bench-test-protocol.md](bench-test-protocol.md) for the two-board bring-up
+procedure.
 
 ### Summary
 The Start Controller implements a state-driven embedded system with modular hardware abstraction, a coordinated serial protocol, and microsecond-precision reaction timing. Its clear state and mode machines make it straightforward to extend with new modes or features while the ACK/NACK serial protocol ensures the finish controller stays in sync.

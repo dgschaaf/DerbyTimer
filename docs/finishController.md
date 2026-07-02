@@ -1,5 +1,8 @@
 # Finish Controller Design Notes
 
+> As-built design reference. The firmware in `firmware/finishController/src/` is
+> authoritative; this document explains the design and the reasoning behind it.
+
 This document summarizes the design of the finish controller firmware for a hobbyist Pinewood‑Derby timing system. The **finish controller** complements a separate start controller and reports race results to a future **race manager** (a Raspberry Pi via BLE). It measures finish times, combines them with start reaction times, determines the winner, and drives large seven‑segment displays.
 
 ---
@@ -121,17 +124,16 @@ The Nano 33 BLE includes a Nordic BLE radio. The BLE protocol and characteristic
 
 ---
 
-### Unknowns & Future Work
+### Deferred Scope
 
-* **Confirm display wiring** – Verify that PIN_LANE1/PIN_LANE2 active‑low logic matches the 74HC238 enable wiring on your shield. Confirm that BCD 0xF blanks the display on your MC14543B revision.
-* **Implement BLE** – Define a BLE GATT service to transmit race results and, if desired, receive configuration commands from the race manager. Ensure BLE callbacks do not block timing‑critical sections.
-* **RFID car ID** – Car identification is deferred to the `feature-rfid` branch. `LaneResult` will need a `carID` field once RFID is implemented.
+* **BLE / Race Manager** -- The GATT service is not yet defined; the full plan
+  lives in [raceManager.md](raceManager.md). Placeholder comments in
+  *finishController.cpp* mark the integration points. BLE callbacks must not
+  block timing-critical sections.
+* **RFID car ID** -- Car identification is deferred to the `feature-rfid`
+  branch. `LaneResult` will need a `carID` field once RFID is implemented.
 
----
-
-### Recommendations & Next Steps
-
-1. **Verify hardware** with a logic analyser or oscilloscope. Confirm sensors trigger correctly, the min‑time filter suppresses false triggers, and the displays show stable digits without flicker.
-2. **Simulate races** by manually breaking the beams and sending artificial reaction times via the start controller. Validate car‑time arithmetic (addition for fouls, subtraction otherwise).
-3. **Refine serial protocols** – Ensure the start controller sends foul and reaction messages promptly and that the finish controller acknowledges them. Handle timeouts gracefully.
-4. **Plan BLE integration** – Sketch a BLE data format for race results and test with a smartphone before integrating into the main firmware.
+Hardware bring-up verification (display wiring polarity, BCD 0xF blanking,
+sensor min-time filtering) is covered by
+[shipping-checklist.md](shipping-checklist.md) and
+[bench-test-protocol.md](bench-test-protocol.md).

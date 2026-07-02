@@ -1,5 +1,9 @@
 # Test Suite Overview
 
+> Reference map for the layered test strategy. The test sources and build
+> configs are authoritative for what actually runs; this document tells you
+> which layer to use when.
+
 ## Philosophy
 
 DerbyTimer uses a layered test strategy: offline tests (L1–L2) catch logic errors without any hardware; integration tests (L3) validate the serial protocol between real Nanos; built-in firmware tests (L4–L5) run on the deployed hardware itself. Hardware bring-up tests live separately under `hardware/` and are used once when assembling a new PCB.
