@@ -17,8 +17,8 @@ participant "Finish\nController" as FC
 participant "Tree\nLights\n(74HC595)" as TREE
 participant "Display\nLeft"      as DL
 participant "Display\nRight"     as DR
-participant "Race\nManager"      as RM   #line.dashed
-participant "Projector"          as PROJ #line.dashed
+participant "Race\nManager"      as RM   #DDDDDD
+participant "Projector"          as PROJ #DDDDDD
 
 note over RM, PROJ
   future: Race Manager (RPi via BLE) and Projector
@@ -48,9 +48,17 @@ end note
 ' ============================================================
 ' Finish controller computes result and sends MSG_WINNER to SC
 ' ============================================================
-FC -> FC : computeRaceTimes()
-FC -> SC : MSG_WINNER (winnerMask: bit0=L, bit1=R, bit2=tie)
+FC -> FC : computeHeatResults(heatResult, timingInputs)
+FC -> SC : MSG_WINNER (winnerMask: bit0=L, bit1=R, bit2=tie, bit3=no result)
 SC --> FC : MSG_ACK
+
+note over SC
+  SC holds winLightsPend = true until
+  rx.WinnerReceived is set by the MSG_WINNER
+  handler, or a 2-second fallback timeout expires.
+  This ensures the blink fires after result data
+  is ready, not on the same loop as COMPLETE entry.
+end note
 
 ' ============================================================
 ' Start controller drives winner lights from MSG_WINNER
@@ -69,6 +77,12 @@ else [rx.RightWin]
   end note
 else [rx.Tie]
   SC -> TREE : startBlink(GO, OFF, 3x 250ms, settle GO)
+else [rx.NoResult (double-foul or both DNF)]
+  note right of TREE
+    No win lights shown.
+    winLightsPend cleared; displays were
+    blanked in displayCarTimes().
+  end note
 end
 
 ' ============================================================

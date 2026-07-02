@@ -2,36 +2,57 @@
  * Pinewood Derby Track Start Controller
  * Version: 1.0
  * Author: Darren Schaaf
- * Date December 2025
- * Compile: Arduino IDE 1.8+ or PlatformIO
- * Board: Arduino Nano AVR
- * Libraries Required:
+ * Compile: arduino-cli or PlatformIO (see README "Deployment")
+ * Board: Arduino Nano AVR (ATmega328P)
+ *
+ * Owns the operator-facing half of the track: buttons, christmas-tree
+ * lights, electromagnet gates, and reaction-time capture. Initiates the
+ * IDLE->STAGING->COUNTDOWN->RACING transitions; follows the FC for
+ * RACING->COMPLETE->IDLE. Structure: startControllerLoop() dispatches to
+ * one handleXxx() function per race state (defined in the section blocks
+ * below); cross-state helpers and the TX bookkeeping live at the bottom.
  */
 
 #include <Arduino.h>
-#include "raceTypes.h"
+#include "startController.h"
 #include "serialComm.h"
 #include "stateMachine.h"
 #include "lights.h"
 #include "gates.h"
 #include "buttons.h"
+#include "debug.h"
 
-// Mode machine structure for managing mode transitions
-struct modeMachine {
+static byte modeIndicatorPattern(raceMode mode) {
+	switch (mode) {
+		case MODE_GATEDROP: return LIGHT_Y1;
+		case MODE_REACTION: return LIGHT_Y2;
+		case MODE_PRO:      return LIGHT_Y3;
+		default:            return LIGHT_GO;
+	}
+}
+
+// Race-mode state machine (GATEDROP/REACTION/PRO/DIALIIN). Mirrors the
+// stateMachine coordination pattern: the SC initiates mode changes from the
+// MODE button (selfTransition, waits for FC ACK) and follows unsolicited
+// changes from the FC/Race Manager (rxTransition). Only active in RACE_IDLE
+// via handleModeChanges(). One instance: `md`.
+struct modeSelect {
 	raceMode current;
 	raceMode target;
-	void nextMode() {
-		// Determine next mode in sequence for button press
+	raceMode nextMode() const {
+		// Next mode in sequence for a button press
 		switch(current) {
-			case MODE_GATEDROP:	target	= MODE_REACTION;	break;
-			case MODE_REACTION:	target	= MODE_PRO;			break;
-			case MODE_PRO:		target	= MODE_GATEDROP; 	break; // DIALIN not yet defined, will be next = MODE_DIALIIN;
-			case MODE_DIALIIN:	target	= MODE_GATEDROP;	break;
-			default: 			target	= MODE_GATEDROP;	break;
+			case MODE_GATEDROP:	return MODE_REACTION;
+			case MODE_REACTION:	return MODE_PRO;
+			case MODE_PRO:		return MODE_GATEDROP;	// DIALIIN is skipped -- only Race Manager can enter it via BLE
+			case MODE_DIALIIN:	return MODE_GATEDROP;	// exit path: operator can press mode to leave DIALIIN
+			default:			return MODE_GATEDROP;
 		}
 	}
-	uint8_t pattern;
 
+// Internal mechanics -- reachable only through service(), mirroring the
+// shared stateMachine (see docs/adr/ADR-0006).
+private:
 	void selfTransition(raceMode newMode) {
 		// 1. Check if already in target state
         if (current == newMode) {
@@ -41,43 +62,34 @@ struct modeMachine {
 		// 2. Set intention to transition
 		target = newMode;
 
-		// 3. Prepare light pattern
-		switch (target){
-			case MODE_GATEDROP: pattern = LIGHT_Y1; break;
-			case MODE_REACTION: pattern = LIGHT_Y2; break;
-			case MODE_PRO:      pattern = LIGHT_Y3; break;
-			case MODE_DIALIIN:  /* fall-through */
-			default:            pattern = LIGHT_GO; break;
-		}
+		// 3. Enqueue coordinated change (no-op if already in flight)
+		txRaceMode((uint8_t)target);
 
-		// 4. Attempt coordinated change
-		txStatus result	= txRaceMode((uint8_t)target);
-		switch (result) {
-			
+		// 4. Check current TX status
+		switch (txStatusOf(MSG_RACE_MODE)) {
+
 			case TX_ACKED:
-				// Transition has been confirmed, now commit
-				current		= target;   						// commit new mode
-				rx.Mode		= (uint8_t)current;					// update Serial target to match
-				startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);	// blink new mode pattern 3x
-				resetTxState(MSG_RACE_MODE);
+				current = target;
+				rx.Mode = (uint8_t)current;
+				startBlink(modeIndicatorPattern(target), 0x00, 3, 250, LIGHT_OFF);
 				return;
 
 			case TX_TIMEOUT:
 			case TX_FAILED:
-				// Transition failed, revert intention and abandon transition
-				target	= current;
-				resetTxState(MSG_RACE_MODE);
+				target = current;
 				return;
 
 			default:
-				// Still TX_SENT or waiting for ACK
+				// TX_NONE, TX_SENT, TX_NACKED -- still waiting
 				return;
 		}
-
-        return;  // Already in target mode
 	}
 	
 	void rxTransition(raceMode serialTgt) {
+		if (serialTgt >= MODE_COUNT) {
+			txNack(MSG_RACE_MODE);
+			return;
+		}
 		// 1. Check if already in target mode
         if (serialTgt == current) {
             return;
@@ -87,34 +99,61 @@ struct modeMachine {
 		target 			= serialTgt;
 		current			= serialTgt;
 
-		// 3. Prepare and execute light pattern
-		switch (target){
-			case MODE_GATEDROP: pattern = LIGHT_Y1; break;
-			case MODE_REACTION: pattern = LIGHT_Y2; break;
-			case MODE_PRO:      pattern = LIGHT_Y3; break;
-			case MODE_DIALIIN:  /* fall-through */
-			default:            pattern = LIGHT_GO; break;
-		}
-		startBlink(pattern, 0x00, 3, 250, LIGHT_OFF);	// blink new mode pattern 3x
+		// 3. Execute light pattern for new mode
+		startBlink(modeIndicatorPattern(target), 0x00, 3, 250, LIGHT_OFF);
 
 		return;
 
 	}
+
+public:
+	// Declare-intent interface, mirroring stateMachine: request() records
+	// where the mode should go; service() consumes an unsolicited mode from
+	// the peer, then drives a pending request through send/ACK/commit.
+	void request(raceMode next) {
+		if (next == current) return;
+		target = next;
+	}
+
+	void service() {
+		if ((raceMode)rx.Mode != current) rxTransition((raceMode)rx.Mode);
+		if (target != current) selfTransition(target);
+	}
 };
 
-struct raceTimingData {
-    uint32_t raceStartUs;
-    uint32_t leftStartUs;
-    uint32_t rightStartUs;
+
+// Workbook for the SC's L4 RACE_TEST self-test (FC comm ping, light chase,
+// gate cycle, interactive button check). Owned by handleRaceTest(); reset()
+// on RACE_TEST entry. failCodes collect 1xx codes that phase 4 blinks on the
+// red lights -- code meanings are listed in docs/race-test-codes.md.
+// One instance: `rt`.
+struct RaceTestCtx {
+	uint8_t  phase;
+	uint8_t  subPhase;
+	unsigned long timer;
+	uint8_t  failCodes[7];
+	uint8_t  failCount;
+	bool     btnArmed;
+
+	void reset() {
+		phase = 0; subPhase = 0; timer = 0;
+		failCount = 0; btnArmed = false;
+		memset(failCodes, 0, sizeof(failCodes));
+	}
+	void addFail(uint8_t c) { if (failCount < 7) failCodes[failCount++] = c; }
+	bool elapsed(unsigned long ms) const {
+		return (unsigned long)(millis() - timer) >= ms;
+	}
+	void startTimer() { timer = millis(); }
+	void nextPhase(uint8_t p) { phase = p; subPhase = 0; startTimer(); }
 };
 
-struct raceResultsData {
-	uint32_t leftReactUs;
-	uint32_t rightReactUs;
-	bool leftFoul;
-	bool rightFoul;
-};
-
+// Tracks which heat-event messages the SC has queued but not yet seen resolve
+// (ACK/timeout/fail). queue() is called once at the event; checkOutcomes()
+// polls every loop and decides per message whether a failure aborts the heat
+// (RACE_START, FOUL -> forceIdle) or is tolerated (reaction times, display
+// advance). RACING refuses to follow COMPLETE while anyPending() is true so
+// heat data cannot be lost in transit. One instance: `pending`.
 struct PendingTx {
 	bool raceStart  = false;
 	bool foulStatus = false;
@@ -125,50 +164,105 @@ struct PendingTx {
 	bool anyPending() const {
 		return raceStart || foulStatus || leftReact || rightReact || dispAdv;
 	}
-	void serviceNext();	// out-of-line definition in helpers section below
+	void queue(serialMsgID id);       // enqueues the message and sets the flag
+	void checkOutcomes();             // polls txStatusOf() and clears flags on terminal status
 };
 
 // State & mode machine instances
 static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
-static modeMachine mdm					= {MODE_GATEDROP, MODE_GATEDROP};
+static modeSelect md					= {MODE_GATEDROP, MODE_GATEDROP};
 
 // timing
-static raceTimingData raceTime			= {0, 0, 0};
-static raceResultsData raceResults		= {0, 0, false, false};
-uint32_t tNow							= 0;			// current time in microseconds	
+static raceTimingData raceTiming			= {0, {0, 0}};
+static uint32_t tNow					= 0;
 
-// countdown 
+// countdown
+// Drives the christmas-tree countdown timing: tick() advances
+// CD_STAGED -> Y3 -> Y2 -> Y1 -> CD_GO on millis() intervals (400 ms in PRO
+// mode, which skips straight to Y1; 500 ms otherwise). handleCountdown()
+// watches changed() to fire light updates and the GO actions exactly once.
+// Reset to CD_IDLE at IDLE entry, to CD_STAGED at COUNTDOWN entry.
+// One instance: `cd`.
 struct CountDownCtx {
-	countdownState state	= CD_IDLE;
-	countdownState prev		= CD_IDLE;
-	unsigned long timer		= 0;
-	unsigned long delay		= 0;		// set in CD_STAGED per mode
+	countdownState state  = CD_IDLE;
+	countdownState prev   = CD_IDLE;
+	unsigned long  timer  = 0;
+	unsigned long  delay  = 0;
+
+	bool changed() const { return state != prev; }
+
+	void tick(raceMode mode) {
+		prev = state;
+		unsigned long now = millis();
+		switch (state) {
+			case CD_STAGED:
+				delay = (mode == MODE_PRO) ? 400 : 500;
+				state = (mode == MODE_PRO) ? CD_Y1 : CD_Y3;
+				timer = now;
+				break;
+			case CD_Y3:
+				if (now - timer >= delay) { state = CD_Y2; timer = now; }
+				break;
+			case CD_Y2:
+				if (now - timer >= delay) { state = CD_Y1; timer = now; }
+				break;
+			case CD_Y1:
+				if (now - timer >= delay) { state = CD_GO; timer = now; }
+				break;
+			default: break;
+		}
+	}
 };
 static CountDownCtx cd;
 
 // racing
 static PendingTx pending;
-uint8_t foulMask						= 0;			// bitmask of fouls to send
-
 // results
-static bool winLightsPend				= false;		// marker if result lights need to display
-
-// error
-static bool criticalTxError				= false;		// set on permanent failure of a critical message
+static bool          winLightsPend  = false;   // true until winner data received or timed out
+static unsigned long winLightTimer  = 0;        // millis() timestamp when RACE_COMPLETE was entered
 
 // button management
 static bool startReleased				= true;
 static bool modeReleased				= true;
+static RaceTestCtx rt;
+
+// State handlers (file-local) -- one per race state, dispatched from startControllerLoop()
+static void handleIdle();
+static void handleStaging();
+static void handleCountdown();
+static void handleRacing();
+static void handleComplete();
+static void handleRaceTest();
 
 // Internal helpers (file-local)
-static unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime);
-countdownState tickCountdownState(raceMode mode, countdownState cdState);
 static void handleModeChanges();
 static void handleEarlyStarts(unsigned long tn, raceMode mode);
-static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn);
-uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart);
-static void handleTrackTriggers();
+static void handleCountdownGoActions(uint32_t tn);
+static void handleTrackTriggers(uint32_t tn);
 static void handleDisplayAdvance();
+
+// ==================== RACE_TEST SUPPORT ====================
+// Light chase sequence: L→R sweep, R→L sweep, 3× all-on/all-off
+struct LightStep { byte pattern; uint16_t ms; };
+static const LightStep kLightSteps[] = {
+	{ LIGHT_BL, 150 }, { LIGHT_BR, 150 }, { LIGHT_Y1, 150 }, { LIGHT_Y2, 150 },
+	{ LIGHT_Y3, 150 }, { LIGHT_GO, 150 }, { LIGHT_FL, 150 }, { LIGHT_FR, 150 },
+	{ LIGHT_FR, 150 }, { LIGHT_FL, 150 }, { LIGHT_GO, 150 }, { LIGHT_Y3, 150 },
+	{ LIGHT_Y2, 150 }, { LIGHT_Y1, 150 }, { LIGHT_BR, 150 }, { LIGHT_BL, 150 },
+	{ 0xFF,     500 }, { 0x00,     500 }, { 0xFF,     500 },
+	{ 0x00,     500 }, { 0xFF,     500 }, { 0x00,     500 },
+};
+static const uint8_t kLightStepCount = sizeof(kLightSteps) / sizeof(kLightSteps[0]);
+
+// Button test sequence: fail code + confirm light + check function
+struct BtnTest { uint8_t failCode; byte confirmLight; bool (*check)(); };
+static const BtnTest kBtnTests[] = {
+	{ 103, LIGHT_BL, isStartPressed },
+	{ 104, LIGHT_BR, isModePressed  },
+	{ 105, LIGHT_Y1, isLeftPressed  },
+	{ 106, LIGHT_Y2, isRightPressed },
+};
+static const uint8_t kBtnTestCount = sizeof(kBtnTests) / sizeof(kBtnTests[0]);
 
 void startControllerSetup(){
 	setupSerial();
@@ -179,8 +273,15 @@ void startControllerSetup(){
 	// Start in idle state.  These variables are declared in raceTypes.h.
 	stm.current					= RACE_IDLE;
 	stm.target					= RACE_IDLE;
-	mdm.current 				= MODE_GATEDROP;
-	mdm.target 					= MODE_GATEDROP;
+	md.current 				= MODE_GATEDROP;
+	md.target 					= MODE_GATEDROP;
+
+	// Hold MODE button at power-up to enter self-test mode
+	if (isModePressed()) {
+		stm.current = RACE_TEST;
+		stm.target  = RACE_TEST;
+		stm.entry   = true;
+	}
 }
 
 void startControllerLoop(){
@@ -199,313 +300,194 @@ void startControllerLoop(){
      */
 	rxSerial();
 
-	if (criticalTxError) {
-		updateLights(LIGHT_FL | LIGHT_FR);		// both red = critical failure, power-cycle required
-		return;
-	}
-
 	switch(stm.current) {
-		case RACE_IDLE:
-			if(stm.entry){
-				stm.entry		= false;
-				cd.state 		= CD_IDLE;
-				updateLights(LIGHT_OFF);
-				dropGate(gateL);
-				dropGate(gateR);
-				modeReleased	= true;
-				startReleased	= true;
-
-				// Sync check: after a normal race, FC drives COMPLETE->IDLE and SC receives
-				// MSG_RACE_STATE(IDLE), setting rx.State = RACE_IDLE. If rx.State is anything
-				// else here, FC did not complete its IDLE transition — warn the operator.
-				if ((raceState)rx.State != RACE_IDLE) {
-					startBlink(LIGHT_FL | LIGHT_FR, 0x00, 3, 250, LIGHT_OFF);	// 3 red blinks, then off
-				}
-			}
-			
-			updateBlink();
-			handleModeChanges();
-			
-			if (!blinkState.active){
-				if (isStartPressed())	stm.target = RACE_STAGING;		// Start moves to STAGING
-			}
-
-			stm.rxTransition((raceState)rx.State);
-			if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-			if(stm.exit){
-				stm.exit = false;
-			}
-			break;
-			
-		case RACE_STAGING:
-			if(stm.entry){
-				stm.entry			= false;
-				returnGates(); 											// reset the gate status to park the cars
-				updateLights(LIGHT_BL | LIGHT_BR); 						// set the lights to blue
-				blinkState.active 	= false;  							// Clear any pending blinks
-			}
-
-			updateBlink();
-
-			if(gateStatus.returnActive)	returnGates();					// call this until it returnActive is false
-
-			if (!blinkState.active){
-				if (isStartPressed())	stm.target = RACE_COUNTDOWN;	// Start moves to COUNTDOWN
-				if (isModePressed())	stm.target = RACE_IDLE;			// Mode returns to IDLE
-			}
-
-			if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-			if(stm.exit){
-				stm.exit = false;
-			}
-			break;
-
-		case RACE_COUNTDOWN:
-			if(stm.entry){
-				stm.entry				= false;
-				cd.state 				= CD_STAGED;
-				cd.prev 			= cd.state;
-			}
-			
-			tNow = micros();
-
-			handleEarlyStarts(tNow, mdm.current);						// Watch for early starts, drop gates, and log fouls.
-
-			cd.state = tickCountdownState(mdm.current, cd.state);			// Tick the countdown state.
-			if (cd.state == CD_GO){
-				handleCountdownGoActions(cd.state, cd.prev, tNow);	// When GO is reached, start race and transition state.
-			}
-			if(cd.state != cd.prev){
-				byte cdLights	= buildLightConfig(cd.state, raceResults.leftFoul, raceResults.rightFoul, mdm.current);	// set new light pattern
-				updateLights(cdLights);									// update lights only when new cd.state
-				cd.prev = cd.state;
-			}
-
-			if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-			if(stm.exit){
-				stm.exit = false;
-			}
-			break;
-			
-		case RACE_RACING:
-			if(stm.entry){
-				stm.entry						= false;
-				raceResults.rightReactUs		= 0;
-				raceResults.leftReactUs			= 0;
-				foulMask						= 0;
-				if (raceResults.leftFoul)  foulMask |= foul_left;
-				if (raceResults.rightFoul) foulMask |= foul_right;
-				pending.foulStatus				= true;		// always send foul status on entry to RACING
-				resetTxState(MSG_FOUL);
-				// pending.raceStart was set in handleCountdownGoActions; resetTxState already called there
-			}
-
-			tNow 							= micros();
-
-			if (mdm.current != MODE_GATEDROP){
-				handleTrackTriggers();
-
-				if (!gateStatus.leftUp && raceResults.leftReactUs == 0){
-					raceResults.leftReactUs	= calcReactionTimes(raceResults.leftFoul, raceTime.raceStartUs, raceTime.leftStartUs);
-				}
-				if (!gateStatus.rightUp && raceResults.rightReactUs == 0){
-					raceResults.rightReactUs	= calcReactionTimes(raceResults.rightFoul, raceTime.raceStartUs, raceTime.rightStartUs);
-				}
-			}
-
-			if (!pending.anyPending()) {
-				stm.rxTransition((raceState)rx.State);		// only accept COMPLETE once all pending messages sent
-			}
-
-			if(stm.exit){
-				stm.exit = false;
-			}
-			break;
-			
-		case RACE_COMPLETE:
-			if(stm.entry){
-				stm.entry				= false;
-				rx.LeftWin				= false;
-				rx.RightWin				= false;
-				rx.Tie					= false;
-				winLightsPend			= true;
-				blinkState.active 		= false;  						// Clear any pending blinks
-			}
-
-			handleDisplayAdvance();
-			
-			if (winLightsPend){ 
-				// Determine win light pattern to show winner and start blink
-				if(rx.LeftWin)	startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
-				if(rx.RightWin)	startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
-				if(rx.Tie) 		startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
-				winLightsPend 			= false;
-			}			
-				
-			if (!winLightsPend && !updateBlink()){				// note: this also executes the updateBlink() function to process blinks
-				stm.rxTransition((raceState)rx.State); // wait until all pending messages have been sent until completing transition
-			}
-
-			if(stm.exit){
-				stm.exit = false;
-			}
-			break;
-			
-		case RACE_TEST:  // not currently implemented, return to idle
-			if(stm.entry){
-				stm.selfTransition(RACE_IDLE);
-				stm.entry = false;
-			}
-			if(stm.exit){
-				stm.exit = false;
-			}
-			break;
-
-		default:
-			stm.current = RACE_IDLE;
-			break;
+		case RACE_IDLE:      handleIdle();      break;
+		case RACE_STAGING:   handleStaging();   break;
+		case RACE_COUNTDOWN: handleCountdown(); break;
+		case RACE_RACING:    handleRacing();    break;
+		case RACE_COMPLETE:  handleComplete();  break;
+		case RACE_TEST:      handleRaceTest();  break;
+		default:             stm.current = RACE_IDLE; break;
 	}
 
-	pending.serviceNext();
+	txService();
+	pending.checkOutcomes();
 }
 
 /* =========================================================================
  *                        RACE_IDLE HELPER FUNCTIONS
  * ========================================================================= */
- static void handleModeChanges(){
- 	// Handle mode changes via button press or rxSerial
-	if (!blinkState.active){
-		if (rx.Mode != mdm.current){
-			mdm.rxTransition((raceMode)rx.Mode);								// Handle unsolicited mode changes from rxSerial
-		} else {
-			if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
-			if (isModePressed() && modeReleased){
-				modeReleased			= false;					// don't revisit until released
-				mdm.nextMode();										// Select mode to advance to per transition order
-			}
+// IDLE: between-heats rest state. Clears all heat data, allows mode changes,
+// and starts a new heat on the Start button (initiates IDLE->STAGING).
+static void handleIdle(){
+	if (stm.takeEntry()) {
+		DBG("[SC] ->IDLE");
+		cd.state 		= CD_IDLE;
+		raceTiming.reset();
+		rx.clearHeatEvents();
+		cancelBlink();
+		updateLights(LIGHT_OFF);
+		dropGate(LANE_LEFT);
+		dropGate(LANE_RIGHT);
+		modeReleased	= true;
+		startReleased	= true;
+
+		// Sync check: after a normal race, FC drives COMPLETE->IDLE and SC receives
+		// MSG_RACE_STATE(IDLE), setting rx.State = RACE_IDLE. If rx.State is anything
+		// else here, FC did not complete its IDLE transition — warn the operator.
+		if ((raceState)rx.State != RACE_IDLE) {
+			startBlink(LIGHT_FL | LIGHT_FR, 0x00, 3, 250, LIGHT_OFF);	// 3 red blinks, then off
 		}
-		if (mdm.target != mdm.current) mdm.selfTransition(mdm.target);
 	}
+
+	updateBlink();
+	handleModeChanges();
+
+	if (!isBlinking()){
+		if (isStartPressed())	stm.request(RACE_STAGING);		// Start moves to STAGING
+	}
+
+	stm.service();
+}
+
+ static void handleModeChanges(){
+ 	// Handle mode changes via button press or rxSerial.
+	// Mode changes preempt any in-progress blink -- startBlink() in selfTransition/rxTransition overwrites.
+	// Unsolicited peer changes (rx.Mode) take precedence over the button;
+	// md.service() consumes them.
+	if ((raceMode)rx.Mode == md.current){
+		if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
+		if (isModePressed() && modeReleased){
+			modeReleased			= false;					// don't revisit until released
+			md.request(md.nextMode());							// advance to the next operator-selectable mode
+		}
+	}
+	md.service();
 }
 
  /* =========================================================================
  *                        RACE_STAGING HELPER FUNCTIONS
  * ========================================================================= */
+// STAGING: gates return so cars can be loaded. Start (with gates ready)
+// initiates ->COUNTDOWN; Mode initiates ->IDLE; follows FC aborts.
+static void handleStaging(){
+	if (stm.takeEntry()) {
+		DBG("[SC] ->STAGING");
+		returnGates(); 											// reset the gate status to park the cars
+		cancelBlink();												// stop any pending blink before setting steady state
+		updateLights(LIGHT_BL | LIGHT_BR); 						// set the lights to blue
+	}
+
+	updateBlink();
+
+	updateGates();
+
+	if (!isBlinking()){
+		if (isStartPressed() && areLanesReady())	stm.request(RACE_COUNTDOWN);	// Start moves to COUNTDOWN
+		if (isModePressed())	stm.request(RACE_IDLE);			// Mode returns to IDLE
+	}
+
+	stm.service();			// also follows FC-initiated abort to IDLE
+}
 
 /* =========================================================================
  *                        RACE_COUNTDOWN HELPER FUNCTIONS
  * ========================================================================= */
+// COUNTDOWN: runs the tree via cd.tick(), records early starts as fouls,
+// and at GO captures the race-start timestamp, queues MSG_RACE_START, and
+// initiates ->RACING. Follows FC aborts.
+static void handleCountdown(){
+	if (stm.takeEntry()) {
+		DBG("[SC] ->COUNTDOWN");
+		cd.state  = CD_STAGED;
+	}
+
+	tNow = micros();
+
+	handleEarlyStarts(tNow, md.current);
+
+	cd.tick(md.current);
+
+	if (cd.state == CD_GO && cd.changed()) {
+		handleCountdownGoActions(tNow);
+	}
+	if (cd.changed()) {
+		byte cdLights = buildLightConfig(cd.state, raceTiming.isFoul(LANE_LEFT), raceTiming.isFoul(LANE_RIGHT), md.current);
+		updateLights(cdLights);
+	}
+
+	stm.service();			// also follows FC-initiated abort to IDLE
+}
+
 static void handleEarlyStarts(unsigned long tn, raceMode mode){
-	// Helper function to monitor for early starts during countdown
-	// Watch for the triggers (given right mode).  Drop the gate but store a foul.
 	if (mode != MODE_GATEDROP){
-		if (isLeftPressed() && gateStatus.leftUp){
-			raceTime.leftStartUs	= tn;
-			raceResults.leftFoul	= true;
-			dropGate(gateL);
+		if (isLeftPressed() && isLaneUp(LANE_LEFT)){
+			DBG("[SC] early start: LEFT");
+			raceTiming.recordTrigger(LANE_LEFT,  tn);
+			dropGate(LANE_LEFT);
 		}
-		if (isRightPressed() && gateStatus.rightUp){
-			raceTime.rightStartUs	= tn;
-			raceResults.rightFoul	= true;
-			dropGate(gateR);
-		}
-	}
-}
-
-static void handleCountdownGoActions(countdownState cdNow, countdownState cdPrev, long tn){
-	// On first CD_GO loop: record race start time, arm pending TX, drop gates if gate-drop mode.
-	if (cdNow != cdPrev){
-		stm.target				= RACE_RACING;
-		raceTime.raceStartUs	= tn;
-		pending.raceStart		= true;
-		resetTxState(MSG_RACE_START);
-
-		if (mdm.current == MODE_GATEDROP){
-			raceTime.leftStartUs	= tn;
-			raceTime.rightStartUs	= tn;
-			dropGate(gateL);
-			dropGate(gateR);
+		if (isRightPressed() && isLaneUp(LANE_RIGHT)){
+			DBG("[SC] early start: RIGHT");
+			raceTiming.recordTrigger(LANE_RIGHT, tn);
+			dropGate(LANE_RIGHT);
 		}
 	}
 }
 
-countdownState tickCountdownState(raceMode mode, countdownState cdState){
-	// Helper function to manage countdown timing based on race mode
-	// This function will handle managing stage delays as well as managing the countdown state
-	unsigned long currentTime = millis();
-	switch (cdState) {
-		case CD_STAGED:
-			if (mode == MODE_PRO){
-				cd.delay = 400;		// Pro mode uses a 400 ms delay between stages
-				cdState = CD_Y1;
-			} else {
-				cd.delay = 500;		// Standard modes use a 500 ms delay between stages
-				cdState = CD_Y3;
-			}
-			cd.timer = currentTime;
-			break;
-		case CD_Y3:
-			if (currentTime - cd.timer >= cd.delay){
-				cdState = CD_Y2;
-				cd.timer = currentTime;
-			}
-			break;
-		case CD_Y2:
-			if (currentTime - cd.timer >= cd.delay){
-				cdState = CD_Y1;
-				cd.timer = currentTime;
-			}
-			break;
-		case CD_Y1:
-			if (currentTime - cd.timer >= cd.delay){
-				cdState = CD_GO;
-				cd.timer = currentTime;
-			}
-			break;
-		default:
-			break;
+static void handleCountdownGoActions(uint32_t tn){
+	DBG("[SC] GO -> queue RACE_START");
+	stm.request(RACE_RACING);
+	raceTiming.recordRaceStart(tn);
+	pending.queue(MSG_RACE_START);
+
+	if (md.current == MODE_GATEDROP){
+		dropGate(LANE_LEFT);
+		dropGate(LANE_RIGHT);
 	}
-	return cdState;	
 }
+
 
 /* =========================================================================
  *                        RACE_RACING HELPER FUNCTIONS
  * ========================================================================= */
+// RACING: sends foul status (and fouled lanes' reaction times) at entry,
+// captures lane releases in REACTION/PRO mode, then follows the FC's
+// ->COMPLETE once all queued messages have resolved.
+static void handleRacing(){
+	if (stm.takeEntry()) {
+		DBG("[SC] ->RACING");
+		pending.queue(MSG_FOUL);
+		// Fouled lanes triggered during COUNTDOWN -- their gates are already
+		// dropped so handleTrackTriggers() can never fire for them. Send their
+		// reaction times now so FC's foul car-time math has real data.
+		if (raceTiming.isFoul(LANE_LEFT))  pending.queue(MSG_LEFT_REACT);
+		if (raceTiming.isFoul(LANE_RIGHT)) pending.queue(MSG_RIGHT_REACT);
+	}
 
-unsigned long elapsedMicros(unsigned long startTime, unsigned long endTime) {
-	// Helper function to calculate elapsed microseconds with overflow protection
-	// Possible this is unnecessary since unsigned long subtraction wraps automatically
-    if (endTime >= startTime) {
-        return endTime - startTime;  					// Normal case
-    } else {
-        return (0xFFFFFFFF - startTime) + endTime + 1;	// Overflow case
-    }
+	tNow = micros();
+
+	if (md.current != MODE_GATEDROP){
+		handleTrackTriggers(tNow);
+	}
+
+	// Data-integrity hold: only follow the FC's COMPLETE once every queued
+	// heat message has resolved. The hold defers the state message; it is
+	// applied on the first pass after the queue drains.
+	stm.service(pending.anyPending());
 }
 
-uint32_t calcReactionTimes(bool foul, uint32_t raceStart, uint32_t carStart){
-	// calculate reaction times, gate drop stays at zero
-	if (foul){
-		return elapsedMicros(raceStart, carStart);		// race time is bigger since they started early
-	} else {
-		return elapsedMicros(carStart, raceStart);		// normally car time is bigger because it started after race
+static void handleTrackTriggers(uint32_t tn){
+	if (isLeftPressed() && isLaneUp(LANE_LEFT)){
+		DBG("[SC] trigger: LEFT");
+		raceTiming.recordTrigger(LANE_LEFT,  tn);
+		dropGate(LANE_LEFT);
+		pending.queue(MSG_LEFT_REACT);
 	}
-}
-
-static void handleTrackTriggers(){
-	if (isLeftPressed() && gateStatus.leftUp){
-		raceTime.leftStartUs	= tNow;
-		dropGate(gateL);
-		pending.leftReact		= true;
-		resetTxState(MSG_LEFT_REACT);
-	}
-	if (isRightPressed() && gateStatus.rightUp){
-		raceTime.rightStartUs	= tNow;
-		dropGate(gateR);
-		pending.rightReact		= true;
-		resetTxState(MSG_RIGHT_REACT);
+	if (isRightPressed() && isLaneUp(LANE_RIGHT)){
+		DBG("[SC] trigger: RIGHT");
+		raceTiming.recordTrigger(LANE_RIGHT, tn);
+		dropGate(LANE_RIGHT);
+		pending.queue(MSG_RIGHT_REACT);
 	}
 }
 
@@ -513,67 +495,272 @@ static void handleTrackTriggers(){
  /* =========================================================================
  *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
+// COMPLETE: waits for MSG_WINNER (2 s timeout), blinks the win lights, and
+// forwards Start presses as display advances. Follows the FC's ->IDLE once
+// the win-light animation finishes.
+static void handleComplete(){
+	if (stm.takeEntry()) {
+		DBG("[SC] ->COMPLETE");
+		winLightsPend  = true;
+		winLightTimer  = millis();
+		cancelBlink();
+	}
+
+	handleDisplayAdvance();
+
+	if (winLightsPend) {
+		// Hold until MSG_WINNER arrives from FC, or fall through after ~2s if it never does.
+		bool timedOut = ((unsigned long)(millis() - winLightTimer) >= 2000UL);
+		if (rx.WinnerReceived || timedOut) {
+			if (rx.LeftWin)  startBlink(LIGHT_GO | LIGHT_FR, LIGHT_FR, 3, 250, LIGHT_GO | LIGHT_FR);
+			if (rx.RightWin) startBlink(LIGHT_GO | LIGHT_FL, LIGHT_FL, 3, 250, LIGHT_GO | LIGHT_FL);
+			if (rx.Tie)      startBlink(LIGHT_GO, 0x00, 3, 250, LIGHT_GO);
+			// rx.NoResult (double-foul): no win lights, just clear pend
+			winLightsPend = false;
+		}
+	}
+
+	// Follow the FC to IDLE only after the win-light animation finishes --
+	// updateBlink() both drives the animation and reports it still running.
+	if (!winLightsPend && !updateBlink()) {
+		stm.service();
+	}
+}
 
 static void handleDisplayAdvance(){
 	if (isStartPressed() && startReleased){
 		startReleased		= false;
-		pending.dispAdv		= true;
-		resetTxState(MSG_DISP_ADVANCE);
+		pending.queue(MSG_DISP_ADVANCE);
 	}
 	if (!isStartPressed()) startReleased = true;
+}
+
+ /* =========================================================================
+ *                        RACE_TEST HELPER FUNCTIONS
+ * ========================================================================= */
+
+// RACE_TEST: L4 self-test (entered by holding MODE at power-up). Phases:
+// 0 FC comm ping, 1 light chase, 2 gate cycle, 3 button prompts, 4 result
+// display (permanent; power-cycle to exit). Codes: docs/race-test-codes.md.
+static void handleRaceTest(){
+	if (stm.takeEntry()) {
+		DBG("[SC] ->RACE_TEST");
+		cancelBlink();
+		updateLights(LIGHT_OFF);
+		rt.reset();
+	}
+
+	switch (rt.phase) {
+		case 0: {  // FC comm ping: verify FC responds to RACE_TEST state message
+			switch (rt.subPhase) {
+				case 0:
+					txRaceState((uint8_t)RACE_TEST);
+					rt.startTimer();
+					rt.subPhase = 1;
+					break;
+				case 1: {
+					txStatus s = txStatusOf(MSG_RACE_STATE);
+					if (s == TX_ACKED) {
+						startBlink(LIGHT_BL | LIGHT_BR, LIGHT_OFF, 3, 250, LIGHT_OFF);
+						rt.nextPhase(1);
+					} else if (s == TX_TIMEOUT || s == TX_FAILED || rt.elapsed(2000)) {
+						rt.addFail(107);
+						startBlink(LIGHT_FL | LIGHT_FR, LIGHT_OFF, 1, 250, LIGHT_OFF);
+						rt.nextPhase(1);
+					}
+					break;
+				}
+			}
+			break;
+		}
+
+		case 1: {  // Light chase: wait for Phase 0 feedback blink, then step through kLightSteps[]
+			updateBlink();
+			if (isBlinking()) break;
+			if (rt.subPhase == 0) {
+				updateLights(kLightSteps[0].pattern);
+				rt.startTimer();
+				rt.subPhase = 1;
+			} else if (rt.elapsed(kLightSteps[rt.subPhase - 1].ms)) {
+				if (rt.subPhase < kLightStepCount) {
+					updateLights(kLightSteps[rt.subPhase].pattern);
+					rt.startTimer();
+					rt.subPhase++;
+				} else {
+					updateLights(LIGHT_OFF);
+					rt.nextPhase(2);
+				}
+			}
+			break;
+		}
+
+		case 2: {  // Gates: return both, verify up, drop L then R
+			switch (rt.subPhase) {
+				case 0:
+					returnGates();
+					rt.startTimer();
+					rt.subPhase = 1;
+					break;
+				case 1:
+					updateGates();
+					if (rt.elapsed(600)) {
+						if (!areLanesReady()) {
+							if (!isLaneUp(LANE_LEFT))  rt.addFail(101);
+							if (!isLaneUp(LANE_RIGHT)) rt.addFail(102);
+						}
+						dropGate(LANE_LEFT);
+						rt.startTimer();
+						rt.subPhase = 2;
+					}
+					break;
+				case 2:
+					if (rt.elapsed(300)) {
+						dropGate(LANE_RIGHT);
+						rt.startTimer();
+						rt.subPhase = 3;
+					}
+					break;
+				case 3:
+					if (rt.elapsed(300)) rt.nextPhase(3);
+					break;
+			}
+			break;
+		}
+
+		case 3: {  // Buttons: prompt each of 4 buttons in sequence, 5s timeout per button
+			if (rt.subPhase >= kBtnTestCount) {
+				updateBlink();
+				if (!isBlinking()) {
+					updateLights(LIGHT_OFF);
+					rt.nextPhase(4);
+				}
+				break;
+			}
+
+			updateBlink();
+			bool pressed = kBtnTests[rt.subPhase].check();
+
+			if (!rt.btnArmed) {
+				// Wait for the button to be released before starting the 5s countdown
+				if (!pressed) {
+					rt.btnArmed = true;
+					rt.startTimer();
+				}
+				break;
+			}
+
+			// GO blink = "press a button" prompt; restarts each short cycle
+			if (!isBlinking()) startBlink(LIGHT_GO, LIGHT_OFF, 2, 400, LIGHT_GO);
+
+			if (pressed) {
+				cancelBlink();
+				startBlink(kBtnTests[rt.subPhase].confirmLight, LIGHT_OFF, 3, 150, LIGHT_OFF);
+				rt.subPhase++;
+				rt.btnArmed = false;
+			} else if (rt.elapsed(5000)) {
+				rt.addFail(kBtnTests[rt.subPhase].failCode);
+				rt.subPhase++;
+				rt.btnArmed = false;
+			}
+			break;
+		}
+
+		case 4: {  // Result display — stays here permanently (power-cycle to exit)
+			updateBlink();
+			if (rt.failCount == 0) {
+				// All pass: GO blinks 5x then stays on
+				if (rt.subPhase == 0) {
+					startBlink(LIGHT_GO, LIGHT_OFF, 5, 300, LIGHT_GO);
+					rt.subPhase = 1;
+				}
+			} else {
+				// Any failure: red blinks failCount times, pauses 1s, repeats
+				if (rt.subPhase == 0 && rt.elapsed(1000)) {
+					startBlink(LIGHT_FL | LIGHT_FR, LIGHT_OFF, rt.failCount, 400, LIGHT_OFF);
+					rt.subPhase = 1;
+				} else if (rt.subPhase == 1 && !isBlinking()) {
+					rt.startTimer();
+					rt.subPhase = 0;
+				}
+			}
+			break;
+		}
+	}
+
 }
 
  /* =========================================================================
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
 
-void PendingTx::serviceNext() {
+void PendingTx::queue(serialMsgID id) {
+	switch(id) {
+		case MSG_RACE_START:
+			if (txRaceStart())                                          raceStart  = true;
+			break;
+		case MSG_FOUL: {
+			uint8_t mask = (raceTiming.isFoul(LANE_LEFT)  ? foul_left  : 0)
+			             | (raceTiming.isFoul(LANE_RIGHT) ? foul_right : 0);
+			if (txFoulStatus(mask)) foulStatus = true;
+			break;
+		}
+		case MSG_LEFT_REACT:
+			if (txReactionTime(raceTiming.reactionTimeUs(LANE_LEFT),  LANE_LEFT))  leftReact  = true;
+			break;
+		case MSG_RIGHT_REACT:
+			if (txReactionTime(raceTiming.reactionTimeUs(LANE_RIGHT), LANE_RIGHT)) rightReact = true;
+			break;
+		case MSG_DISP_ADVANCE:
+			if (txDisplayAdvance())                                     dispAdv    = true;
+			break;
+		default:
+			break;
+	}
+}
+
+void PendingTx::checkOutcomes() {
 	if (raceStart) {
-		txStatus s = txRaceStart(0b0001);
+		txStatus s = txStatusOf(MSG_RACE_START);
 		if (s == TX_ACKED) {
 			raceStart = false;
-			resetTxState(MSG_RACE_START);
 		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
+			// FC sensors may not be armed — heat is unrecoverable. Abort to IDLE.
 			raceStart = false;
-			resetTxState(MSG_RACE_START);
-			criticalTxError = true;		// raceStart failure: FC sensors may not be armed
+			DBG("[SC] RACE_START fail->forceIdle");
+			txError(err_START_TX_TIMEOUT);
+			stm.forceIdle();
 		}
-		return;
 	}
 	if (foulStatus) {
-		txStatus s = txFoulStatus(foulMask);
+		txStatus s = txStatusOf(MSG_FOUL);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) criticalTxError = true;	// FC will compute wrong winner
+			if (s != TX_ACKED) {
+				// Foul data lost — result cannot be trusted. Abort to IDLE.
+				DBG("[SC] FOUL fail->forceIdle");
+				txError(err_STATE_TX_TIMEOUT);
+				stm.forceIdle();
+			}
 			foulStatus = false;
-			resetTxState(MSG_FOUL);
 		}
-		return;
 	}
 	if (leftReact) {
-		txStatus s = txReactionTime(raceResults.leftReactUs, true);
+		txStatus s = txStatusOf(MSG_LEFT_REACT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) criticalTxError = true;	// FC will compute wrong car time
+			// Soft fail: reaction time is record-keeping only in REACTION/PRO mode.
+			// FC already warned via P1-8 guard; continue without halting.
 			leftReact = false;
-			resetTxState(MSG_LEFT_REACT);
 		}
-		return;
 	}
 	if (rightReact) {
-		txStatus s = txReactionTime(raceResults.rightReactUs, false);
+		txStatus s = txStatusOf(MSG_RIGHT_REACT);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) criticalTxError = true;
 			rightReact = false;
-			resetTxState(MSG_RIGHT_REACT);
 		}
-		return;
 	}
 	if (dispAdv) {
-		txStatus s = txDisplayAdvance();
+		txStatus s = txStatusOf(MSG_DISP_ADVANCE);
 		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
 			dispAdv = false;
-			resetTxState(MSG_DISP_ADVANCE);
-			// non-critical: operator can press again
 		}
-		return;
 	}
 }

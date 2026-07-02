@@ -19,8 +19,8 @@ participant "Start\nController"  as SC
 participant "Finish\nController" as FC
 participant "Sensor\nLeft"       as SL
 participant "Sensor\nRight"      as SR
-participant "Race\nManager"      as RM  #line.dashed
-participant "Camera"             as CAM #line.dashed
+participant "Race\nManager"      as RM  #DDDDDD
+participant "Camera"             as CAM #DDDDDD
 
 note over RM, CAM
   future: Race Manager (RPi via BLE) and Camera
@@ -94,11 +94,11 @@ end
 ' Timeout guard — auto-complete lane if >10 seconds
 ' ============================================================
 alt [elapsed > maxRaceTimeUs (10 s) and left not recorded]
-  FC -> FC : leftTimeUs = maxRaceTimeUs, leftRecorded = true
+  FC -> FC : leftTimeUs = maxRaceTimeUs, leftDnf = true, leftRecorded = true
 end
 
 alt [elapsed > maxRaceTimeUs (10 s) and right not recorded]
-  FC -> FC : rightTimeUs = maxRaceTimeUs, rightRecorded = true
+  FC -> FC : rightTimeUs = maxRaceTimeUs, rightDnf = true, rightRecorded = true
 end
 
 ' ============================================================

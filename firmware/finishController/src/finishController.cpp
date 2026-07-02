@@ -2,10 +2,15 @@
  * Pinewood Derby Track Finish Controller
  * Version: 1.0
  * Author: Darren Schaaf
- * Date December 2025
- * Compile: Arduino IDE 1.8+ or PlatformIO
- * Board: Arduino Nano 33 BLE
- * Libraries Required:
+ * Compile: arduino-cli or PlatformIO (see README "Deployment")
+ * Board: Arduino Nano 33 BLE (nRF52840)
+ *
+ * Owns the finish-line half of the track: ISR optical sensors, car-time
+ * computation, and the 5-digit displays. Follows the SC through
+ * IDLE->STAGING->COUNTDOWN->RACING; initiates RACING->COMPLETE->IDLE once
+ * both lanes finish (or DNF). Protocol runs on Serial1 (D0/D1); USB Serial
+ * is free for DERBY_DEBUG output. Structure: finishControllerLoop()
+ * dispatches to one handleXxx() function per race state.
  */
 
 #include <Arduino.h>
@@ -15,64 +20,108 @@
 #include "finishController.h"
 #include "display.h"
 #include "sensors.h"
+#include "debug.h"
 
-// Results structure for a lane.  Times are stored in microseconds
-struct raceResults {
-	bool		left;			// indicates track left(true) or right(false);
-    bool		foul;			// whether a foul occurred (false start)
-    bool		winner;			// true if this lane won the race
-    uint32_t	carTimeUs;		// computed car time including or excluding reaction
-    uint32_t	raceTimeUs;		// raw finish time from sensors
-    uint32_t	reactionTimeUs;	// reaction time measured at start
-};
 
-struct raceTimingData {
-    uint32_t raceStartUs;
-    uint32_t leftTimeUs;
-    uint32_t rightTimeUs;
-    bool leftRecorded;
-    bool rightRecorded;
-};
-
+// Tracks the FC's one outbound heat-event message: MSG_WINNER. queue() fires
+// once at COMPLETE entry; checkOutcomes() polls every loop and re-sends once
+// on failure (finish times still display even if the SC never hears the
+// winner). COMPLETE refuses to advance to IDLE while anyPending() is true.
+// One instance: `pending`.
 struct PendingTx {
-	bool winner = false;
-
+	bool    winner         = false;
+	uint8_t winnerAttempts = 0;
 	bool anyPending() const { return winner; }
-	void serviceNext();
+	void queue(serialMsgID id);
+	void checkOutcomes();
 };
 
-// State flags instance
-bool needReact 			= false;		// Reaction time is needed
+// Workbook for the FC's L4 RACE_TEST self-test (display segment test,
+// sensor beam-break check, SC comm check). Owned by handleRaceTest();
+// reset() on RACE_TEST entry. failCodes collect 2xx codes that phase 4
+// cycles on the displays as 00.XXX -- meanings in docs/race-test-codes.md.
+// One instance: `fct`.
+struct FCTestCtx {
+	uint8_t  phase;
+	uint8_t  subPhase;
+	unsigned long timer;
+	uint8_t  failCodes[5];
+	uint8_t  failCount;
+	bool     scCommReceived;
+	uint32_t sensorStartUs;
+	bool     leftFrozen;
+	bool     rightFrozen;
+	uint8_t  dispCodeIdx;
+	uint8_t  dispState;
+
+	void reset() {
+		phase = 0; subPhase = 0; timer = 0; failCount = 0;
+		scCommReceived = false; sensorStartUs = 0;
+		leftFrozen = rightFrozen = false;
+		dispCodeIdx = dispState = 0;
+		memset(failCodes, 0, sizeof(failCodes));
+	}
+	void addFail(uint8_t c) { if (failCount < 5) failCodes[failCount++] = c; }
+	bool elapsed(unsigned long ms) const {
+		return (unsigned long)(millis() - timer) >= ms;
+	}
+	void startTimer() { timer = millis(); }
+	void nextPhase(uint8_t p) { phase = p; subPhase = 0; startTimer(); }
+};
+
+static bool needReact              = false;
 static PendingTx pending;
-static bool criticalTxError = false;		// unused in FC currently; reserved for future critical messages
+static FCTestCtx fct;
+static uint8_t winnerMask          = 0;
+static unsigned long countdownEntryMs = 0;   // P1-11: SC-silent timeout anchor
 
-
-// Static instances for left and right lanes; lifetime extends over loops.
-static raceResults leftResults	= {true, false, false, 0, 0, 0};
-static raceResults rightResults	= {false, false, false, 0, 0, 0};
-static raceTimingData race		= {0, 0, 0, false, false};
+static HeatResults    heatResult	= {};
+static TimingInputs timingInputs	= {};
 
 // State machine instance
 static stateMachine stm			= {RACE_IDLE, RACE_IDLE, true, false};
 static raceMode currentMode;
 
+// State handlers (file-local) -- one per race state, dispatched from finishControllerLoop()
+static void handleIdle();
+static void handleStaging();
+static void handleCountdown();
+static void handleRacing();
+static void handleComplete();
+static void handleRaceTest();
+
 // Internal helpers (file-local)
 static void handleSensors();
 static void handleRxReaction();
-static void computeRaceTimes();
 static void displayCarTimes();
 static void displayReactionTimes();
 
 
+// ==================== RACE_TEST SUPPORT ====================
+// Display sequence: all-segments (88.888), then countdown 05→01 at 500ms each
+struct DispStep { uint32_t valUs; uint16_t holdMs; };
+static const DispStep kDispSteps[] = {
+	{ 88888000UL, 1000 },  // all segments lit: 88.888
+	{ 5000000UL,   500 },  // 05.000
+	{ 4000000UL,   500 },  // 04.000
+	{ 3000000UL,   500 },  // 03.000
+	{ 2000000UL,   500 },  // 02.000
+	{ 1000000UL,   500 },  // 01.000
+};
+static const uint8_t kDispStepCount = sizeof(kDispSteps) / sizeof(kDispSteps[0]);
+
 void finishControllerSetup() {
-	setupSerial();
+	// Protocol on Serial1 (hardware UART, D0/D1); USB Serial stays free for
+	// DERBY_DEBUG output so debug builds no longer corrupt the wire (P2-37).
+	Serial1.begin(serialBaud);
+	setupSerialBus(Serial1);
 	setupSensors();
-	setupDisplay();	
+	setupDisplay();
 
 	// Start in idle state.  These variables are declared in raceTypes.h.
-    stm.current					= RACE_IDLE;
-    stm.target					= RACE_IDLE;
-    currentMode 				= MODE_GATEDROP;
+    stm.current				= RACE_IDLE;
+    stm.target				= RACE_IDLE;
+    currentMode 			= MODE_GATEDROP;
 }
 
 void finishControllerLoop() {
@@ -91,252 +140,439 @@ void finishControllerLoop() {
      */
 	rxSerial();
 
-	if (criticalTxError) {
-		clearDisplay(true);		// blank both displays
-		clearDisplay(false);
-		return;
+	if (rx.lastErrorCode != err_NULL) {
+		rx.lastErrorCode = err_NULL;
+		stm.forceIdle();
 	}
 
 	switch(stm.current) {
-		case RACE_IDLE:
-			if(stm.entry){
-				stm.entry 			= false;
-				clearDisplay(true);				// clear display (left)
-				clearDisplay(false);			// clear display (right))
-			}
-
-			if (rx.Mode != currentMode){
-				currentMode 		= (raceMode)rx.Mode;	// update mode from serial, source will validate
-				// notifyBLEMode(currentMode);	// Future - notify mode change over BLE
-			}
-			stm.rxTransition((raceState)rx.State);			// transitions state if received via serial
-			if(stm.exit){
-				stm.exit 			= false;
-			}
-
-			break;
-			
-		case RACE_STAGING:
-			if(stm.entry){
-				stm.entry 			= false;
-			}
-			stm.rxTransition((raceState)rx.State);			// transitions state if received via serial
-			if(stm.exit){
-				stm.exit 			= false;
-			}
-
-			break;
-			
-		case RACE_COUNTDOWN:
-			if(stm.entry){
-				stm.entry 			= false;
-				rx.RaceStart			= false;
-				race.raceStartUs	= 0;
-			}
-
-			if (rx.RaceStart && (race.raceStartUs == 0)) {
-				race.raceStartUs	= micros();
-				armSensors(race.raceStartUs);
-			}
-			stm.rxTransition((raceState)rx.State);						// transitions state if received via serial	
-			if(stm.exit){
-				stm.exit 			= false;		
-			}
-
-			break;
-			
-		case RACE_RACING:
-			if(stm.entry){
-				// Reset recording flags and times
-				race.leftRecorded		= false;
-				race.rightRecorded		= false;
-				race.leftTimeUs			= 0;
-				race.rightTimeUs		= 0;
-				rx.RightReactionTime		= -1;
-				rx.LeftReactionTime		= -1;
-				rx.LeftFoul				= false;
-				rx.RightFoul				= false;
-				stm.entry 				= false;
-				// Only arm if not already armed from COUNTDOWN state
-				if (race.raceStartUs	== 0){
-					race.raceStartUs 	= micros();
-					armSensors(race.raceStartUs);
-				}
-			}
-
-			handleSensors();					// check for interrupt and record finish time
-			handleRxReaction();					// store reactio and foul from rxSerial
-
-			if (race.leftRecorded && race.rightRecorded) {
-				stm.target	= RACE_COMPLETE;	// initiate state transition when both sensors recorded
-			}
-			if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-			if(stm.exit){
-				stm.exit 				= false;
-				disarmSensors();
-			}
-			break;
-			
-		case RACE_COMPLETE:
-			if(stm.entry){
-				needReact				= false;
-				rx.DisplayAdvanceFlag	= false;
-				computeRaceTimes();
-				displayCarTimes();
-				pending.winner			= true;		// transmit winner once per race
-				resetTxState(MSG_WINNER);
-				stm.entry				= false;
-			}
-
-			if(rx.DisplayAdvanceFlag) {
-				if(needReact){
-					displayReactionTimes();
-				} else if (!pending.anyPending()) {
-					stm.target		= RACE_IDLE;	// only transition once winner TX is done
-				}
-				rx.DisplayAdvanceFlag	= false;
-			}
-			if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-			if(stm.exit){
-				stm.exit 				= false;
-				// carID, left, foul, winner, carTimeUs, raceTimeUs, reactionTimeUs
-				leftResults		= {true,	false,	false,	0,	0,	0};		// reset left results struct
-				rightResults	= {false,	false,	false,	0,	0,	0};		// reset right results struct
-			}
-			break;
-			
-		case RACE_TEST:
-			// currently unused, just transition back to idle
-			if(stm.entry){
-				stm.target 		= RACE_IDLE;
-				stm.entry 		= false;
-			}
-
-			if (stm.target != stm.current) stm.selfTransition(stm.target);
-
-			if(stm.exit){
-				stm.exit 		= false;
-			}
-			break;
+		case RACE_IDLE:      handleIdle();      break;
+		case RACE_STAGING:   handleStaging();   break;
+		case RACE_COUNTDOWN: handleCountdown(); break;
+		case RACE_RACING:    handleRacing();    break;
+		case RACE_COMPLETE:  handleComplete();  break;
+		case RACE_TEST:      handleRaceTest();  break;
+		default:             stm.current = RACE_IDLE; break;
 	}
 
-	pending.serviceNext();
+	txService();
+	pending.checkOutcomes();
 }
 
 /* =========================================================================
  *                        RACE_IDLE HELPER FUNCTIONS
  * ========================================================================= */
- 
- /* =========================================================================
+// IDLE: between-heats rest state. Clears all heat data, blanks the displays,
+// tracks mode changes from the SC, and follows the SC's ->STAGING.
+static void handleIdle(){
+	if (stm.takeEntry()) {
+		DBG("[FC] ->IDLE");
+		rx.clearHeatEvents();
+		disarmSensors();
+		heatResult   = {};
+		timingInputs = {};
+		clearDisplay(LANE_LEFT);
+		clearDisplay(LANE_RIGHT);
+	}
+
+	if (rx.Mode != (uint8_t)currentMode && rx.Mode < MODE_COUNT) {
+		currentMode = (raceMode)rx.Mode;
+		// future: notify mode change over BLE
+	}
+	stm.service();
+}
+
+/* =========================================================================
  *                        RACE_STAGING HELPER FUNCTIONS
  * ========================================================================= */
+// STAGING: passive on the FC -- just follows the SC to COUNTDOWN or back
+// to IDLE.
+static void handleStaging(){
+	if (stm.takeEntry()) {
+		DBG("[FC] ->STAGING");
+	}
+	stm.service();
+}
 
 /* =========================================================================
  *                        RACE_COUNTDOWN HELPER FUNCTIONS
  * ========================================================================= */
+// COUNTDOWN: waits for MSG_RACE_START -- stamps the race clock (t0) and arms
+// the sensors the moment it arrives. Aborts to IDLE if the SC goes silent
+// for 10 s. Follows the SC's ->RACING.
+static void handleCountdown(){
+	if (stm.takeEntry()) {
+		DBG("[FC] ->COUNTDOWN");
+		timingInputs.startUs = 0;
+		countdownEntryMs     = millis();
+	}
+
+	// SC went silent — sensors never armed, heat is unrecoverable. Abort to IDLE.
+	if ((millis() - countdownEntryMs) > 10000UL) {
+		DBG("[FC] countdown timeout->forceIdle");
+		stm.forceIdle();
+		return;
+	}
+
+	if (rx.RaceStart && (timingInputs.startUs == 0)) {
+		timingInputs.startUs = micros();
+		armSensors(timingInputs.startUs);
+	}
+	stm.service();
+}
 
 /* =========================================================================
  *                        RACE_RACING HELPER FUNCTIONS
  * ========================================================================= */
-void handleSensors() {
-	uint32_t now = micros();
-	uint32_t elapsed = now - race.raceStartUs;
-	
-    if (!race.leftRecorded) {
-		// If the left sensor has finished, save finish time.
-		if (isLeftFinished()) {
-			race.leftTimeUs  	= getLeftTimeUs();
-			race.leftRecorded 	= true;
-		// If max race time exceeded, save finish time.
-		} else if (elapsed > config.maxRaceTimeUs) {
-			race.leftTimeUs 		= config.maxRaceTimeUs;
-			race.leftRecorded 	= true;
+// RACING: collects sensor finishes (or DNFs at maxRaceTimeUs) and inbound
+// reaction/foul messages. Initiates ->COMPLETE once both lanes are recorded;
+// disarms sensors on exit.
+static void handleRacing(){
+	if (stm.takeEntry()) {
+		DBG("[FC] ->RACING");
+		timingInputs.leftRecorded		= false;
+		timingInputs.rightRecorded		= false;
+		timingInputs.leftTimeUs			= 0;
+		timingInputs.rightTimeUs		= 0;
+		timingInputs.leftDnf			= false;
+		timingInputs.rightDnf			= false;
+		// Only arm if not already armed from COUNTDOWN state
+		if (timingInputs.startUs == 0) {
+			timingInputs.startUs		= micros();
+			armSensors(timingInputs.startUs);
 		}
-    }
-	
-	if (!race.rightRecorded) {
-		// If the left sensor has finished, save finish time.
-		if (isRightFinished()) {
-			race.rightTimeUs  	= getRightTimeUs();
-			race.rightRecorded 	= true;
-		// If max race time exceeded, save finish time.
-		} else if (elapsed > config.maxRaceTimeUs) {
-			race.rightTimeUs 	= config.maxRaceTimeUs;
-			race.rightRecorded 	= true;
-		}
-    }
-}
+	}
 
-void handleRxReaction() {
-	if (rx.LeftReactionTime >= 0) {
-		leftResults.reactionTimeUs 	= (uint32_t)rx.LeftReactionTime;
-		rx.LeftReactionTime 			= -1;		// reset flag
+	handleSensors();
+	handleRxReaction();
+
+	if (timingInputs.leftRecorded && timingInputs.rightRecorded) {
+		stm.request(RACE_COMPLETE);
 	}
-	if (rx.RightReactionTime >= 0) {
-		rightResults.reactionTimeUs	= (uint32_t)rx.RightReactionTime;	
-		rx.RightReactionTime 		= -1;		// reset flag
+	// The FC initiates the exit from RACING; received state edges are held
+	// (an SC abort arrives as MSG_ERROR and forceIdles at loop level).
+	stm.service(true);
+
+	if (stm.takeExit()) {
+		disarmSensors();
 	}
-	if (rx.LeftFoul) {
-		leftResults.foul			= true;
-		rx.LeftFoul					= false;	// reset flag
-	}
-	if (rx.RightFoul) {
-		rightResults.foul			= true;
-		rx.RightFoul					= false;	// reset flag
-	}
-	
 }
 
 /* =========================================================================
  *                        RACE_COMPLETE HELPER FUNCTIONS
  * ========================================================================= */
-void computeRaceTimes() {
-	// race time is the raw time from GO to FINISH
-	leftResults.raceTimeUs	= race.leftTimeUs;
-	rightResults.raceTimeUs	= race.rightTimeUs;
-	
-	// carTime is raceTime with reactionTime
-	// foul indicates addition (trigger before GO) so multiply by +1
-	// no foul indicates subtraction (trigger after GO) so multiply by -1
-	leftResults.carTimeUs  = leftResults.raceTimeUs  + (leftResults.foul  ? +1 : -1) * leftResults.reactionTimeUs;
-	rightResults.carTimeUs = rightResults.raceTimeUs + (rightResults.foul ? +1 : -1) * rightResults.reactionTimeUs;
-	
-	// cannot win if foul, if both foul no winner (tie).  If no foul fastest carTime wins
-	leftResults.winner  = !leftResults.foul  && (rightResults.foul || (leftResults.carTimeUs  < rightResults.carTimeUs));		// winner if no foul AND (other track fouls OR faster time)
-	rightResults.winner = !rightResults.foul && (leftResults.foul  || (rightResults.carTimeUs < leftResults.carTimeUs));		// winner if no foul AND (other track fouls OR faster time)
-}
+// COMPLETE: computes heat results once at entry, shows car times, sends
+// MSG_WINNER, then steps through display advances from the SC (car times ->
+// reaction times -> done). Initiates ->IDLE after the last advance.
+static void handleComplete(){
+	if (stm.takeEntry()) {
+		DBG("[FC] ->COMPLETE");
+		handleRxReaction();   // fold in reaction/foul messages still in flight at the finish
+		computeHeatResults(heatResult, timingInputs);
 
-static void displayCarTimes() {	
-	updateDisplay(leftResults.carTimeUs, true);
-	updateDisplay(rightResults.carTimeUs, false);
-	
-	if(currentMode != MODE_GATEDROP){
-		needReact			= true; 		// set flag to display reaction times next
+		// Warn if reaction times were expected but never received (lost serial TX).
+		// Car times will equal race times — incorrect but best-effort; result is still displayed.
+		if (currentMode == MODE_REACTION || currentMode == MODE_PRO) {
+			bool leftNeedsReact  = !heatResult.left.foul  && !heatResult.left.dnf;
+			bool rightNeedsReact = !heatResult.right.foul && !heatResult.right.dnf;
+			if ((leftNeedsReact  && heatResult.left.reactionTimeUs  == 0) ||
+			    (rightNeedsReact && heatResult.right.reactionTimeUs == 0)) {
+				txError(err_STATE_TX_TIMEOUT);
+			}
+		}
+
+		displayCarTimes();
+		bool leftValid  = !heatResult.left.foul  && !heatResult.left.dnf;
+		bool rightValid = !heatResult.right.foul && !heatResult.right.dnf;
+		needReact = (currentMode == MODE_REACTION || currentMode == MODE_PRO)
+		          && (leftValid || rightValid);
+		winnerMask = 0;
+		if (!leftValid && !rightValid) {
+			winnerMask = winner_noResult;
+		} else {
+			if (heatResult.left.winner)  winnerMask |= winner_leftWin;
+			if (heatResult.right.winner) winnerMask |= winner_rightWin;
+			if (!heatResult.left.winner && !heatResult.right.winner) winnerMask |= winner_tie;
+		}
+		DBG2("[FC] winner mask=", winnerMask);
+		pending.queue(MSG_WINNER);
+	}
+
+	if(rx.DisplayAdvanceFlag) {
+		if(needReact){
+			displayReactionTimes();
+			needReact			= false;
+		} else if (!pending.anyPending()) {
+			// Advance to IDLE only once MSG_WINNER has resolved -- the gate
+			// decides WHETHER to request, not whether to service.
+			stm.request(RACE_IDLE);
+		}
+		rx.DisplayAdvanceFlag	= false;
+	}
+	// The FC initiates the exit from COMPLETE; received state edges are held
+	// (an SC abort arrives as MSG_ERROR and forceIdles at loop level).
+	stm.service(true);
+
+	if (stm.takeExit()) {
+		heatResult			= {};
+		timingInputs		= {};
 	}
 }
 
-static void displayReactionTimes() {	
-	updateDisplay(leftResults.reactionTimeUs, true);
-	updateDisplay(rightResults.reactionTimeUs, false);
+/* =========================================================================
+ *                        RACE_TEST HELPER FUNCTIONS
+ * ========================================================================= */
+// RACE_TEST: L4 self-test (entered when the SC sends RACE_TEST at boot).
+// Phases: 1 display segment test, 2 sensor beam-break check, 3 SC comm
+// check, 4 result display (permanent; power-cycle to exit). Codes:
+// docs/race-test-codes.md.
+static void handleRaceTest(){
+	if (stm.takeEntry()) {
+		DBG("[FC] ->RACE_TEST");
+		fct.reset();
+		fct.scCommReceived = ((raceState)rx.State == RACE_TEST);
+		fct.phase = 1;
+		fct.startTimer();
+	}
+
+			switch (fct.phase) {
+				case 1: {  // Display test: 88.888 all-segments, then countdown 05→01
+					if (fct.subPhase == 0) {
+						updateDisplay(kDispSteps[0].valUs, LANE_LEFT);
+						updateDisplay(kDispSteps[0].valUs, LANE_RIGHT);
+						fct.startTimer();
+						fct.subPhase = 1;
+					} else if (fct.elapsed(kDispSteps[fct.subPhase - 1].holdMs)) {
+						if (fct.subPhase < kDispStepCount) {
+							updateDisplay(kDispSteps[fct.subPhase].valUs, LANE_LEFT);
+							updateDisplay(kDispSteps[fct.subPhase].valUs, LANE_RIGHT);
+							fct.startTimer();
+							fct.subPhase++;
+						} else {
+							clearDisplay(LANE_LEFT);
+							clearDisplay(LANE_RIGHT);
+							fct.nextPhase(2);
+						}
+					}
+					break;
+				}
+
+				case 2: {  // Sensor test: live elapsed display, freeze on beam-break, 8s timeout
+					if (fct.subPhase == 0) {
+						fct.sensorStartUs = micros();
+						armSensors(fct.sensorStartUs);
+						fct.startTimer();
+						fct.subPhase = 1;
+					}
+					if (fct.subPhase == 1) {
+						uint32_t elUs = micros() - fct.sensorStartUs;
+						unsigned long elMs = (unsigned long)(millis() - fct.timer);
+
+						if (!fct.leftFrozen) {
+							if (isLeftFinished()) {
+								updateDisplay(getLeftTimeUs(), LANE_LEFT);
+								fct.leftFrozen = true;
+							} else if (elMs >= 8000) {
+								fct.addFail(201);
+								clearDisplay(LANE_LEFT);
+								fct.leftFrozen = true;
+							} else {
+								updateDisplay(elUs, LANE_LEFT);
+							}
+						}
+						if (!fct.rightFrozen) {
+							if (isRightFinished()) {
+								updateDisplay(getRightTimeUs(), LANE_RIGHT);
+								fct.rightFrozen = true;
+							} else if (elMs >= 8000) {
+								fct.addFail(202);
+								clearDisplay(LANE_RIGHT);
+								fct.rightFrozen = true;
+							} else {
+								updateDisplay(elUs, LANE_RIGHT);
+							}
+						}
+						if (fct.leftFrozen && fct.rightFrozen) {
+							disarmSensors();
+							fct.nextPhase(3);
+						}
+					}
+					break;
+				}
+
+				case 3: {  // SC comm check: 3s window to confirm SC sent RACE_TEST ping
+					if ((raceState)rx.State == RACE_TEST) fct.scCommReceived = true;
+					if (fct.elapsed(3000)) {
+						if (!fct.scCommReceived) fct.addFail(203);
+						fct.nextPhase(4);
+					}
+					break;
+				}
+
+				case 4: {  // Result display — stays here permanently (power-cycle to exit)
+					if (fct.failCount == 0) {
+						// All clear: 00.000 on both lanes
+						if (fct.subPhase == 0) {
+							updateDisplay(0UL, LANE_LEFT);
+							updateDisplay(0UL, LANE_RIGHT);
+							fct.subPhase = 1;
+						}
+						break;
+					}
+
+					// Failure cycle: show each code (2s) → blank (1s) → 88.888 end marker (1s) → repeat
+					if (fct.subPhase == 0) {
+						updateDisplay((uint32_t)fct.failCodes[0] * 1000UL, LANE_LEFT);
+						updateDisplay((uint32_t)fct.failCodes[0] * 1000UL, LANE_RIGHT);
+						fct.dispCodeIdx = 0;
+						fct.dispState   = 0;
+						fct.startTimer();
+						fct.subPhase    = 1;
+					}
+
+					switch (fct.dispState) {
+						case 0:  // Showing failure code for 2s
+							if (fct.elapsed(2000)) {
+								clearDisplay(LANE_LEFT);
+								clearDisplay(LANE_RIGHT);
+								fct.dispState = 1;
+								fct.startTimer();
+							}
+							break;
+						case 1:  // Blank separator for 1s
+							if (fct.elapsed(1000)) {
+								fct.dispCodeIdx++;
+								if (fct.dispCodeIdx < fct.failCount) {
+									updateDisplay((uint32_t)fct.failCodes[fct.dispCodeIdx] * 1000UL, LANE_LEFT);
+									updateDisplay((uint32_t)fct.failCodes[fct.dispCodeIdx] * 1000UL, LANE_RIGHT);
+									fct.dispState = 0;
+								} else {
+									updateDisplay(88888000UL, LANE_LEFT);
+									updateDisplay(88888000UL, LANE_RIGHT);
+									fct.dispState = 2;
+								}
+								fct.startTimer();
+							}
+							break;
+						case 2:  // End marker (88.888) for 1s, then restart cycle
+							if (fct.elapsed(1000)) {
+								fct.dispCodeIdx = 0;
+								updateDisplay((uint32_t)fct.failCodes[0] * 1000UL, LANE_LEFT);
+								updateDisplay((uint32_t)fct.failCodes[0] * 1000UL, LANE_RIGHT);
+								fct.dispState = 0;
+								fct.startTimer();
+							}
+							break;
+					}
+					break;
+				}
+			}
+
+}
+
+void handleSensors() {
+	uint32_t now     = micros();
+	uint32_t elapsed = now - timingInputs.startUs;
+
+    if (!timingInputs.leftRecorded) {
+		if (isLeftFinished()) {
+			timingInputs.leftTimeUs   = getLeftTimeUs();
+			timingInputs.leftRecorded = true;
+			DBG2("[FC] left finish us=", timingInputs.leftTimeUs);
+		} else if (elapsed > config.maxRaceTimeUs) {
+			timingInputs.leftTimeUs   = config.maxRaceTimeUs;
+			timingInputs.leftDnf      = true;
+			timingInputs.leftRecorded = true;
+			DBG("[FC] left DNF");
+		}
+    }
+
+	if (!timingInputs.rightRecorded) {
+		if (isRightFinished()) {
+			timingInputs.rightTimeUs   = getRightTimeUs();
+			timingInputs.rightRecorded = true;
+			DBG2("[FC] right finish us=", timingInputs.rightTimeUs);
+		} else if (elapsed > config.maxRaceTimeUs) {
+			timingInputs.rightTimeUs   = config.maxRaceTimeUs;
+			timingInputs.rightDnf      = true;
+			timingInputs.rightRecorded = true;
+			DBG("[FC] right DNF");
+		}
+    }
+}
+
+void handleRxReaction() {
+	if (rx.LeftReactionValid) {
+		timingInputs.leftReactionUs = (uint32_t)rx.LeftReactionTime;
+		rx.LeftReactionValid        = false;
+		rx.LeftReactionTime         = 0;
+		DBG2("[FC] left react us=", timingInputs.leftReactionUs);
+	}
+	if (rx.RightReactionValid) {
+		timingInputs.rightReactionUs = (uint32_t)rx.RightReactionTime;
+		rx.RightReactionValid        = false;
+		rx.RightReactionTime         = 0;
+		DBG2("[FC] right react us=", timingInputs.rightReactionUs);
+	}
+	if (rx.LeftFoul) {
+		timingInputs.leftFoul = true;
+		rx.LeftFoul           = false;
+		DBG("[FC] rx foul: LEFT");
+	}
+	if (rx.RightFoul) {
+		timingInputs.rightFoul = true;
+		rx.RightFoul           = false;
+		DBG("[FC] rx foul: RIGHT");
+	}
+}
+
+/* =========================================================================
+ *                        RACE_COMPLETE HELPER FUNCTIONS
+ * ========================================================================= */
+
+static void displayCarTimes() {
+	if (heatResult.left.foul  || heatResult.left.dnf)  clearDisplay(LANE_LEFT);
+	else updateDisplay(heatResult.left.carTimeUs, LANE_LEFT);
+
+	if (heatResult.right.foul || heatResult.right.dnf) clearDisplay(LANE_RIGHT);
+	else updateDisplay(heatResult.right.carTimeUs, LANE_RIGHT);
+}
+
+static void displayReactionTimes() {
+	if (heatResult.left.foul  || heatResult.left.dnf)  clearDisplay(LANE_LEFT);
+	else updateDisplay(heatResult.left.reactionTimeUs, LANE_LEFT);
+
+	if (heatResult.right.foul || heatResult.right.dnf) clearDisplay(LANE_RIGHT);
+	else updateDisplay(heatResult.right.reactionTimeUs, LANE_RIGHT);
 }
 
 /* =========================================================================
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
-void PendingTx::serviceNext() {
-	if (winner) {
-		uint8_t winnerMask = 0;
-		if (leftResults.winner)  winnerMask |= winner_leftWin;
-		if (rightResults.winner) winnerMask |= winner_rightWin;
-		if (!leftResults.winner && !rightResults.winner) winnerMask |= winner_tie;
+void PendingTx::queue(serialMsgID id) {
+	switch(id) {
+		case MSG_WINNER:
+			if (txWinner(winnerMask)) winner = true;
+			break;
+		default:
+			break;
+	}
+}
 
-		txStatus s = txWinner(winnerMask);
-		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
+void PendingTx::checkOutcomes() {
+	if (winner) {
+		txStatus s = txStatusOf(MSG_WINNER);
+		if (s == TX_ACKED) {
 			winner = false;
-			resetTxState(MSG_WINNER);
-			// non-critical: finish times still display even if winner TX fails
+			winnerAttempts = 0;
+		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
+			if (winnerAttempts < 1) {
+				winnerAttempts++;
+				txWinner(winnerMask);   // one re-send attempt; finish times still display if this also fails
+			} else {
+				winner = false;
+				winnerAttempts = 0;
+			}
 		}
 	}
 }

@@ -1,0 +1,71 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compile Start Controller",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn arduino:avr:nano --warnings all --library firmware/lib/shared firmware/startController/startController.ino",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Compile Finish Controller",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn arduino:mbed_nano:nano33ble --warnings all --library firmware/lib/shared firmware/finishController/finishController.ino",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Compile SC Debug",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn arduino:avr:nano --warnings all --library firmware/lib/shared --build-property \"build.extra_flags=-DDERBY_DEBUG\" firmware/startController/startController.ino",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Compile FC Debug",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn arduino:mbed_nano:nano33ble --warnings all --library firmware/lib/shared --build-property \"build.extra_flags=-DDERBY_DEBUG\" firmware/finishController/finishController.ino",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run L2 Native Tests",
+            "type": "shell",
+            "command": "${env:USERPROFILE}\\.platformio\\penv\\Scripts\\pio.exe test -e native",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

@@ -13,8 +13,8 @@ title finishController State Machine
 note as N_RX
   rxSerial() is called at the top of every loop() iteration,
   in every state. It is not shown on individual states.
-  All state transitions are driven by rxSerial() updating rx.State,
-  except Racing->Complete which is self-driven by sensor data.
+  MSG_ERROR received in any state calls stm.forceIdle()
+  immediately, before the state switch executes.
 end note
 
 [*] --> Setup
@@ -36,8 +36,10 @@ Setup --> Idle : / void loop()
 ' IDLE
 ' ============================================================
 state "Idle" as Idle {
+  Idle : entry / rx.clearHeatEvents()
+  Idle : entry / disarmSensors()
   Idle : entry / clearDisplay(left), clearDisplay(right)
-  Idle : do / if rx.Mode != currentMode then currentMode = rx.Mode
+  Idle : do / if rx.Mode != currentMode AND rx.Mode < MODE_COUNT then currentMode = rx.Mode
   Idle : do / stm.rxTransition(rx.State)
 }
 
@@ -46,6 +48,8 @@ note right of Idle
   updates from startController passively.
   No explicit Bluetooth notification yet.
   [future: notifyBLEMode(currentMode)]
+  disarmSensors() covers the forceIdle()
+  path which bypasses the RACING exit block.
 end note
 
 ' ============================================================
@@ -59,37 +63,40 @@ state "Staging" as Staging {
 note right of Staging
   Finish controller is fully reactive in STAGING.
   It holds state and waits for MSG_RACE_STATE(COUNTDOWN)
-  from startController. No local actions are taken.
+  or MSG_RACE_STATE(IDLE) from startController.
 end note
 
 ' ============================================================
 ' COUNTDOWN
 ' ============================================================
 state "Countdown" as Countdown {
-  Countdown : entry / rx.RaceStart = false
-  Countdown : entry / race.raceStartUs = 0
-  Countdown : do / if rx.RaceStart AND raceStartUs == 0:
-  Countdown : do /   race.raceStartUs = micros()
-  Countdown : do /   armSensors(race.raceStartUs)
+  Countdown : entry / timingInputs.startUs = 0
+  Countdown : entry / countdownEntryMs = millis()
+  Countdown : do / if (millis() - countdownEntryMs) > 10 s: stm.forceIdle()
+  Countdown : do / if rx.RaceStart AND timingInputs.startUs == 0:
+  Countdown : do /   timingInputs.startUs = micros()
+  Countdown : do /   armSensors(timingInputs.startUs)
   Countdown : do / stm.rxTransition(rx.State)
 }
 
 note right of Countdown
   Sensors are armed here on MSG_RACE_START,
-  before the RACING state begins. This minimises
-  the window between GO and sensor readiness.
+  before RACING begins. Minimises the window
+  between GO and sensor readiness.
   armSensors() resets ISR flags and attaches
   interrupts on the configured edge (RISING).
+  10-second SC-silent timeout: if MSG_RACE_START
+  never arrives, sensors are never armed and the
+  heat is unrecoverable -- stm.forceIdle() aborts.
 end note
 
 ' ============================================================
 ' RACING
 ' ============================================================
 state "Racing" as Racing {
-  Racing : entry / reset race.leftRecorded, rightRecorded, leftTimeUs, rightTimeUs
-  Racing : entry / reset rx.LeftReactionTime = rx.RightReactionTime = -1
-  Racing : entry / reset rx.LeftFoul = rx.RightFoul = false
-  Racing : entry / if raceStartUs == 0 then armSensors(micros())
+  Racing : entry / reset timingInputs (leftRecorded, rightRecorded,
+  Racing : entry /   leftTimeUs, rightTimeUs, leftDnf, rightDnf)
+  Racing : entry / if timingInputs.startUs == 0 then armSensors(micros())
   Racing : do / handleSensors()
   Racing : do / handleRxReaction()
   Racing : do / if leftRecorded AND rightRecorded then stm.target = RACE_COMPLETE
@@ -99,44 +106,55 @@ state "Racing" as Racing {
 
 note right of Racing
   handleSensors(): polls ISR volatile flags.
-  Records elapsed time (micros() - raceStartUs)
-  or maxRaceTimeUs (10 s) if lane times out.
-  handleRxReaction(): reads rx.LeftReactionTime
-  and rx.RightReactionTime (int32_t, -1 = not yet rx'd)
-  and stores into leftResults / rightResults structs.
+  Records elapsed time (micros() - timingInputs.startUs).
+  If lane times out (> 10 s): stores maxRaceTimeUs
+  as placeholder and sets left/rightDnf = true.
+  handleRxReaction(): reads rx.LeftReactionTime /
+  rx.RightReactionTime (uint32_t) guarded by
+  LeftReactionValid / RightReactionValid flags,
+  and rx.LeftFoul / rx.RightFoul; populates heatResult.
+  FC is the initiator for RACING->COMPLETE
+  (selfTransition, not rxTransition).
 end note
 
 ' ============================================================
 ' RACE COMPLETE
 ' ============================================================
 state "Race Complete" as RaceComplete {
-  RaceComplete : entry / computeRaceTimes()
+  RaceComplete : entry / computeHeatResults(heatResult, timingInputs)
   RaceComplete : entry / displayCarTimes()
-  RaceComplete : entry / txWinPending = true, needReact = false
-  RaceComplete : do / transmitWinnerToSC()  [retries until TX_ACKED or TX_FAILED]
+  RaceComplete : entry / needReact = true if MODE_REACTION or MODE_PRO
+  RaceComplete : entry / pending.queue(MSG_WINNER)
+  RaceComplete : do / pending.checkOutcomes()  [retries once on TX_FAILED; soft-fail after 2 attempts]
   RaceComplete : do / if DisplayAdvanceFlag AND needReact: displayReactionTimes(), needReact = false
-  RaceComplete : do / if DisplayAdvanceFlag AND !needReact: stm.target = RACE_IDLE
+  RaceComplete : do / if DisplayAdvanceFlag AND !needReact AND !pending.anyPending(): stm.target = RACE_IDLE
   RaceComplete : do / stm.selfTransition(stm.target)
-  RaceComplete : exit / reset leftResults, rightResults structs
+  RaceComplete : exit / reset heatResult, timingInputs
 }
 
 note right of RaceComplete
-  computeRaceTimes():
+  computeHeatResults():
   carTimeUs = raceTimeUs + (foul ? +1 : -1) * reactionTimeUs
   A foul (false start) adds reaction time as a penalty.
   A clean start subtracts reaction time as a reward.
-  Winner: fastest carTimeUs with no foul.
-  Both foul -> neither wins (tie, winnerMask bit2).
-  MSG_WINNER bitmask: bit0=left, bit1=right, bit2=tie.
+  Winner: fastest carTimeUs; lane must not be foul or DNF.
+  Both lanes invalid (foul/DNF) -> winnerMask bit3 (no result).
+  MSG_WINNER bitmask: bit0=left, bit1=right, bit2=tie, bit3=no result.
+  Guard: if valid lane has reactionTimeUs == 0 in REACTION/PRO
+  mode, fires txError(err_STATE_TX_TIMEOUT) as a warning;
+  car times are still displayed (equal to race times).
 end note
 
 ' ============================================================
-' TESTING  (stub: immediately self-transitions to IDLE)
+' TESTING  (4-phase self-test; entered via MSG_RACE_STATE(RACE_TEST) from SC)
 ' ============================================================
 state "Testing" as Testing {
-  Testing : entry / stm.target = RACE_IDLE
-  Testing : do / stm.selfTransition(stm.target)
-  Testing : note: no test logic currently implemented
+  Testing : entry / fct.reset(); fct.scCommReceived = (rx.State == RACE_TEST)
+  Testing : do / Phase 1: show 88.888 (1s); countdown 05.000->01.000 (500ms steps); clear displays
+  Testing : do / Phase 2: armSensors(); live display counts up; freeze on beam-break (8s timeout; codes 201/202)
+  Testing : do / Phase 3: wait 3s for SC ping MSG_RACE_STATE(RACE_TEST); code 203 if not received
+  Testing : do / Phase 4: 00.000 both lanes (all pass) or failure-code cycle (2s/1s/88.888 end); loops
+  Testing : note: exit via power-cycle; future: MSG_RACE_STATE(IDLE) from Race Manager
 }
 
 ' ============================================================
@@ -146,13 +164,15 @@ Idle        --> Staging      : MSG_RACE_STATE(STAGING)
 Idle        --> Testing      : MSG_RACE_STATE(TEST)
 
 Staging     --> Countdown    : MSG_RACE_STATE(COUNTDOWN)
+Staging     --> Idle         : MSG_RACE_STATE(IDLE)\n[operator abort from SC]
 
 Countdown   --> Racing       : MSG_RACE_STATE(RACING)
+Countdown   --> Idle         : 10 s SC-silent timeout\n[stm.forceIdle()]
 
-Racing      --> RaceComplete : leftRecorded AND rightRecorded\n[sensor ISR or 10 s timeout]
+Racing      --> RaceComplete : leftRecorded AND rightRecorded\n[sensor ISR or 10 s DNF timeout]
+Racing      --> Idle         : MSG_ERROR received\n[stm.forceIdle()]
 
-RaceComplete --> Idle        : MSG_DISP_ADVANCE\n[when !needReact -> stm.selfTransition(IDLE)]
+RaceComplete --> Idle        : MSG_DISP_ADVANCE\n[when !needReact AND !pending.anyPending()\n-> stm.selfTransition(IDLE)]
 
-Testing     --> Idle         : immediate (entry self-transition)
 
 @enduml

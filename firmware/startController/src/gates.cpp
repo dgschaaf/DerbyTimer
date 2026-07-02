@@ -1,43 +1,64 @@
 #include "gates.h"
 #include <Arduino.h>
 
-// Gate pins
-const byte gateL 		= 4;
-const byte gateR 		= 7;
-const byte gateReturn	= 6;
+static const byte pinGateL        	= 4;
+static const byte pinGateR        	= 7;
+static const byte pinGateReturn   	= 6;
+static const uint16_t returnWaitMs	= 500;
 
-gateStatusInfo gateStatus	= {false, false, false, 0, 500};	// initialize with 500 ms wait time
+struct GateState {
+	bool returnActive;
+	bool leftUp;
+	bool rightUp;
+	unsigned long returnTime;
+};
+static GateState gs = {false, false, false, 0};
 
 void setupGates() {
-
-    pinMode(gateL, OUTPUT);
-    pinMode(gateR, OUTPUT);
-    pinMode(gateReturn, OUTPUT);
-    digitalWrite(gateL, LOW);
-    digitalWrite(gateR, LOW);
-    digitalWrite(gateReturn, LOW);
+	pinMode(pinGateL, OUTPUT);
+	pinMode(pinGateR, OUTPUT);
+	pinMode(pinGateReturn, OUTPUT);
+	digitalWrite(pinGateL, LOW);
+	digitalWrite(pinGateR, LOW);
+	digitalWrite(pinGateReturn, LOW);
 }
 
-void dropGate(byte gatePin) {
-    digitalWrite(gatePin, LOW);				// de-energize electromagnet, spring pulls gate down
-	if (gatePin == gateL)	gateStatus.leftUp	= false;
-	if (gatePin == gateR)	gateStatus.rightUp	= false;
+bool isLaneUp(Lane lane) {
+	return (lane == LANE_LEFT) ? gs.leftUp : gs.rightUp;
+}
+
+bool areLanesReady() {
+	// future: also check RFID car-present sensors per lane
+	return !gs.returnActive && gs.leftUp && gs.rightUp;
+}
+
+void dropGate(Lane lane) {
+	if (!isLaneUp(lane)) return;
+	if (lane == LANE_LEFT) {
+		digitalWrite(pinGateL, LOW);
+		gs.leftUp = false;
+	} else {
+		digitalWrite(pinGateR, LOW);
+		gs.rightUp = false;
+	}
 }
 
 void returnGates() {
-	unsigned long now = millis();
-	if(gateStatus.returnActive){
-		if(now - gateStatus.returnTime > gateStatus.waitTime){
-			digitalWrite(gateReturn, LOW);		// deactivate solenoid
-			gateStatus.returnActive 	= false;
-		}
-	} else if(!gateStatus.leftUp || !gateStatus.rightUp){
-		digitalWrite(gateL, HIGH);				// energize electromagnet to hold gate
-		digitalWrite(gateR, HIGH);				// energize electromagnet to hold gate
-		digitalWrite(gateReturn,HIGH);			// solenoid pushes both gates into magnets
-		gateStatus.leftUp				= true;
-		gateStatus.rightUp				= true;
-		gateStatus.returnActive			= true;
-		gateStatus.returnTime			= now;
+	if (gs.returnActive) return;
+	if (gs.leftUp && gs.rightUp) return;
+	digitalWrite(pinGateL, HIGH);
+	digitalWrite(pinGateR, HIGH);
+	digitalWrite(pinGateReturn, HIGH);
+	gs.leftUp       = true;
+	gs.rightUp      = true;
+	gs.returnActive = true;
+	gs.returnTime   = millis();
+}
+
+void updateGates() {
+	if (!gs.returnActive) return;
+	if (millis() - gs.returnTime >= returnWaitMs) {
+		digitalWrite(pinGateReturn, LOW);
+		gs.returnActive = false;
 	}
 }

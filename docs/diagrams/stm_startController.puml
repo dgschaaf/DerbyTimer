@@ -104,7 +104,7 @@ note right of COUNTDOWN
       leftStartUs = rightStartUs = raceStartUs
   . Reaction modes: gates stay up;
       drivers hold buttons to release in RACING
-  . txRaceStart(0b0001) sent to finishController
+  . txRaceStart() sent to finishController
       (retry up to 3x, 50 ms timeout each)
 end note
 
@@ -134,11 +134,12 @@ end note
 ' COMPLETE
 ' ============================================================
 state "COMPLETE" as COMPLETE {
-  COMPLETE : entry / rx.LeftWin = rx.RightWin = rx.Tie = false
-  COMPLETE : entry / winLightsPend = true
-  COMPLETE : entry / blinkState.active = false
+  COMPLETE : entry / winLightsPend = true, winLightTimer = millis()
+  COMPLETE : entry / cancelBlink()
   COMPLETE : do / handleDisplayAdvance()
-  COMPLETE : do / when MSG_WINNER rx: startBlink(winner pattern), winLightsPend = false
+  COMPLETE : do / updateBlink()
+  COMPLETE : do / if winLightsPend AND (rx.WinnerReceived OR 2 s timeout):
+  COMPLETE : do /   startBlink(winner pattern), winLightsPend = false
   COMPLETE : do / if !winLightsPend AND !updateBlink() then stm.rxTransition(rx.State)
 }
 
@@ -147,33 +148,42 @@ note right of COMPLETE
   . Left wins:  startBlink(GO|FR, FR, 3x, 250ms, GO|FR)
   . Right wins: startBlink(GO|FL, FL, 3x, 250ms, GO|FL)
   . Tie:        startBlink(GO, OFF, 3x, 250ms, GO)
+  . No result (double-foul/DNF): no blink, winLightsPend cleared
+  winLightsPend held until rx.WinnerReceived flag is set by
+  MSG_WINNER handler, or 2-second fallback timeout expires.
   Return to IDLE is driven by finishController
   sending MSG_RACE_STATE(IDLE).
 end note
 
 ' ============================================================
-' TESTING  (stub: immediately self-transitions to IDLE)
+' TESTING  (4-phase self-test; hold MODE at power-up to enter)
 ' ============================================================
 state "TESTING" as TESTING {
-  TESTING : entry / stm.selfTransition(RACE_IDLE)
-  TESTING : note: no test logic currently implemented
+  TESTING : entry / rt.reset(); txRaceState(RACE_TEST) [ping FC]
+  TESTING : do / Phase 0: wait FC ACK (2s); blue 3x = pass, code 107 = no FC (non-fatal)
+  TESTING : do / Phase 1: chase all 8 lights L->R, R->L; 3x all-on/all-off (150ms/500ms steps)
+  TESTING : do / Phase 2: returnGates(); verify areLanesReady() (codes 101/102); dropGate(L/R)
+  TESTING : do / Phase 3: prompt START, MODE, LEFT, RIGHT buttons (GO blinks; 5s each; codes 103-106)
+  TESTING : do / Phase 4: GO stays green (all pass) or FL+FR blink N times (N = fail count); loops
+  TESTING : note: exit via power-cycle; future: MSG_RACE_STATE(IDLE) from Race Manager
 }
 
 ' ============================================================
 ' TRANSITIONS
 ' ============================================================
 IDLE      --> STAGING   : Button_Start\n(not during blink)
-IDLE      --> TESTING   : MSG_RACE_STATE(TEST)
+IDLE      --> TESTING   : MODE held at power-up\n[or MSG_RACE_STATE(TEST)]
 
 STAGING   --> COUNTDOWN : Button_Start\n[MSG_RACE_STATE(COUNTDOWN) TX_ACKED]
 STAGING   --> IDLE      : Button_Mode\n[MSG_RACE_STATE(IDLE) TX_ACKED]
 
-COUNTDOWN --> RACING    : cdState == CD_GO\n[MSG_RACE_START sent]
+COUNTDOWN --> RACING    : cdState == CD_GO\n[MSG_RACE_STATE(RACING) TX_ACKED]
+COUNTDOWN --> IDLE      : MSG_RACE_START TX_TIMEOUT/TX_FAILED\n[stm.forceIdle()]
 
 RACING    --> COMPLETE  : MSG_RACE_STATE(COMPLETE)\n[after all PendingMsgs drained]
+RACING    --> IDLE      : MSG_RACE_START or MSG_FOUL TX_TIMEOUT/TX_FAILED\n[stm.forceIdle()]
 
 COMPLETE  --> IDLE      : MSG_RACE_STATE(IDLE)\n[sent by finishController]
 
-TESTING   --> IDLE      : immediate (entry self-transition)
 
 @enduml

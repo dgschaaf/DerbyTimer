@@ -9,7 +9,11 @@ cmake-build-*/
 *.bin
 
 # VS Code & IDE
-.vscode/
+# Track the shareable project files (build/test tasks, recommended
+# extensions); ignore machine-specific ones (include paths, debug configs).
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
 .idea/
 *.code-workspace
 
@@ -20,7 +24,6 @@ Thumbs.db
 # Claude & workflow artifacts
 CLAUDE.md
 .claude/
-docs/superpowers/
 nudges/
 
 # KiCad backups/cache (keep source .kicad_* files!)

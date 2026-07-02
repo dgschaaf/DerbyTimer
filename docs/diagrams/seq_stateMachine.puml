@@ -34,9 +34,10 @@ SC -> SC : stm.allowedTransition(newState)
 note right of SC
   Guards illegal transitions.
   Same 6x6 table in both controllers:
-  IDLE->STAGING, STAGING->COUNTDOWN,
-  COUNTDOWN->RACING, RACING->COMPLETE,
-  COMPLETE->IDLE, IDLE->TEST, TEST->IDLE.
+  Normal path: IDLE->STAGING, STAGING->COUNTDOWN,
+    COUNTDOWN->RACING, RACING->COMPLETE, COMPLETE->IDLE,
+    IDLE->TEST, TEST->IDLE.
+  Abort paths: STAGING->IDLE, COUNTDOWN->IDLE, RACING->IDLE.
 end note
 
 SC -> SC : stm.target = newState
@@ -62,7 +63,6 @@ COM -> SC : returns TX_ACKED
 SC -> SC : stm.current = stm.target
 SC -> SC : stm.entry = true
 SC -> SC : stm.exit  = true
-SC -> COM : resetTxState(MSG_RACE_STATE)
 
 note over SC, FC
   On the NEXT loop() iteration:
@@ -71,6 +71,9 @@ note over SC, FC
   stm.entry = false.
   exit logic runs once and clears
   stm.exit = false.
+  The TX engine (txDrive) automatically
+  dequeues MSG_RACE_STATE on the next
+  txService() call after TX_ACKED.
 end note
 
 ' ============================================================
@@ -88,11 +91,10 @@ end note
 COM -> SC : returns TX_TIMEOUT or TX_FAILED
 
 SC -> SC : stm.target = stm.current  [revert intention]
-SC -> COM : resetTxState(MSG_RACE_STATE)
 
 note right of SC
   State is unchanged on both sides.
-  future: txError() can log the failure.
+  TX engine dequeues MSG_RACE_STATE automatically.
   The operator must re-trigger the
   transition (e.g. press Start again).
 end note

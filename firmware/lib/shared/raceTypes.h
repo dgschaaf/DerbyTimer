@@ -5,8 +5,7 @@
 
 // **************** RACE DOMAIN ENUMERATIONS ****************
 // These enums define the shared language of the race.
-// Both controllers include this header. serialComm.h does NOT —
-// it works with uint8_t and lets callers interpret the values.
+// Both controllers include this header. serialComm.h also includes it for Lane.
 
 enum raceState : uint8_t {
 	RACE_IDLE,
@@ -30,7 +29,13 @@ enum raceMode : uint8_t {
 	MODE_GATEDROP,
 	MODE_REACTION,
 	MODE_PRO,
-	MODE_DIALIIN
+	MODE_DIALIIN,  // Set only via BLE from Race Manager — not reachable through the mode button
+	MODE_COUNT     // sentinel — used for bounds checking only, not a valid mode
+};
+
+enum Lane : uint8_t {
+	LANE_LEFT,
+	LANE_RIGHT
 };
 
 #endif  // RACETYPES_H

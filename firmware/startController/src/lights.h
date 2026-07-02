@@ -1,6 +1,7 @@
 #ifndef LIGHTS_H
 #define LIGHTS_H
 
+#include <Arduino.h>
 #include "raceTypes.h"    // countdownState, raceMode used in buildLightConfig signature
 
 /**
@@ -11,6 +12,10 @@
  * 
  */
 
+// Non-blocking blink animation state: alternates pattern1/pattern2 `count`
+// times at `rate` ms per toggle, then holds finalPattern. startBlink() arms
+// it; the main loop must call updateBlink() every iteration to advance it
+// (returns false once finished). One global instance lives in lights.cpp.
 struct BlinkState {
     byte pattern1;
     byte pattern2;
@@ -34,17 +39,15 @@ struct BlinkState {
 #define LIGHT_FL   (1 << 6) // Q6: Red L
 #define LIGHT_FR   (1 << 7) // Q7: Red R
 
-// Global blink state instance (defined in lights.cpp)
-extern BlinkState blinkState;
-
 // Setup/teardown
 void setupLights();
 
 // Public API
 void updateLights(byte config);
 byte buildLightConfig(countdownState state, bool FL, bool FR, raceMode mode);
-void lightTestPattern();
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern);
+void cancelBlink();
+bool isBlinking();
 bool updateBlink();
 
 #endif  // LIGHTS_H
