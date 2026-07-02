@@ -6,11 +6,11 @@
 ## Context
 
 The finishController firmware separates concerns across files that map to hardware interfaces:
-- `sensors.cpp` — ISR and optical sensor hardware
-- `display.cpp` — BCD decoder and 7-segment display hardware
-- `finishController.cpp` — state machine and race logic
+- `sensors.cpp` -- ISR and optical sensor hardware
+- `display.cpp` -- BCD decoder and 7-segment display hardware
+- `finishController.cpp` -- state machine and race logic
 
-During the `computeHeatResults()` refactor, the question arose whether a pure computation function (no hardware dependencies, no ISR, no Serial) deserves its own file to maximise testability — it could be compiled and exercised on a PC without any Arduino toolchain.
+During the `computeHeatResults()` refactor, the question arose whether a pure computation function (no hardware dependencies, no ISR, no Serial) deserves its own file to maximise testability -- it could be compiled and exercised on a PC without any Arduino toolchain.
 
 ## Decision
 

@@ -11,18 +11,18 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 
 #### Race Management
 
-* **Four Race Modes**: Gate Drop, Reaction Time, Pro Tree, and Dial-In. The first three cycle via the mode button. Dial-In is only activated by a BLE command from the Race Manager — it requires historical run data to compute handicaps, which is beyond the scope of the standalone controllers.
-* **Six Race States**: Idle → Staging → Countdown → Racing → Complete → (back to Idle); Test state (RACE_TEST) runs a 4-phase self-test: FC communication ping, light chase, gate cycle, and interactive button verification
+* **Four Race Modes**: Gate Drop, Reaction Time, Pro Tree, and Dial-In. The first three cycle via the mode button. Dial-In is only activated by a BLE command from the Race Manager -- it requires historical run data to compute handicaps, which is beyond the scope of the standalone controllers.
+* **Six Race States**: Idle -> Staging -> Countdown -> Racing -> Complete -> (back to Idle); Test state (RACE_TEST) runs a 4-phase self-test: FC communication ping, light chase, gate cycle, and interactive button verification
 * **Automated Sequencing**: Handles complete race lifecycle with state-driven logic
 
 #### Hardware Control
 * **Dual Starting Gates**: Electromagnet-held gates with spring-loaded drop mechanism
 * **Return Solenoid**: Automated gate reset system with 500 ms activation window
-* **Christmas Tree Lights**: Dual 6-light arrays (Blue, Yellow×3, Green, Red) via 74HC595 shift register
+* **Christmas Tree Lights**: Dual 6-light arrays (Blue, Yellowx3, Green, Red) via 74HC595 shift register
 
 #### User Interface
 
-* **Four Button Inputs**: Start (A6), Mode (A7), Left Lane (D18), Right Lane (D19) — all hardware-debounced via Schmitt triggers on the PCB shield; no software debounce required
+* **Four Button Inputs**: Start (A6), Mode (A7), Left Lane (D18), Right Lane (D19) -- all hardware-debounced via Schmitt triggers on the PCB shield; no software debounce required
 * **Visual Feedback**: LED patterns indicate mode, state, and race status
 * **Foul Detection**: Red light indication for false starts in reaction modes
 
@@ -64,11 +64,11 @@ IDLE ──[Start]──> STAGING ──[Start]──> COUNTDOWN ──[GO]─�
 * Entry actions (reset, initialization)
 * Continuous actions (monitoring, updates)
 * Exit actions (cleanup, transmission)
-* Guarded transitions via allowed-transition table (same 6×6 table in both controllers)
+* Guarded transitions via allowed-transition table (same 6x6 table in both controllers)
 
 #### Mode Machine Design
 
-Modes cycle via the Mode button (IDLE state only): Gate Drop → Reaction → Pro → Gate Drop. Each transition blinks the corresponding yellow light 3×. Dial-In is the fourth mode but is not reachable through the button — it is only activated by the Race Manager via BLE. Once active, pressing the mode button returns to Gate Drop.
+Modes cycle via the Mode button (IDLE state only): Gate Drop -> Reaction -> Pro -> Gate Drop. Each transition blinks the corresponding yellow light 3x. Dial-In is the fourth mode but is not reachable through the button -- it is only activated by the Race Manager via BLE. Once active, pressing the mode button returns to Gate Drop.
 
 | Mode | Light Pattern | Countdown Delay | How Entered |
 |------|---------------|-----------------|-------------|
@@ -102,7 +102,7 @@ Combines procedural functions with data structs (`stateMachine`, `modeSelect`, `
 | Metric | Value | Notes |
 |--------|-------|-------|
 | **Serial Baud** | 115,200 | High-speed UART |
-| **Reaction Precision** | ±1 µs | Using micros() |
+| **Reaction Precision** | +/-1 us | Using micros() |
 | **Message Timeout** | 50 ms | Per-retry; 3 retries max |
 | **Countdown Stage Delay** | 400 ms (Pro) / 500 ms (others) | Between each yellow light |
 
@@ -110,8 +110,8 @@ Combines procedural functions with data structs (`stateMachine`, `modeSelect`, `
 
 On entry to RACE_COUNTDOWN the countdown state machine begins:
 
-* **Gate Drop / Reaction / Dial-In**: CD_STAGED → CD_Y3 → CD_Y2 → CD_Y1 → CD_GO (500 ms per stage)
-* **Pro Tree**: CD_STAGED → CD_Y1 → CD_GO (400 ms, one stage — single yellow flash)
+* **Gate Drop / Reaction / Dial-In**: CD_STAGED -> CD_Y3 -> CD_Y2 -> CD_Y1 -> CD_GO (500 ms per stage)
+* **Pro Tree**: CD_STAGED -> CD_Y1 -> CD_GO (400 ms, one stage -- single yellow flash)
 
 At CD_GO, gates drop (Gate Drop mode) or stay armed (Reaction/Pro modes), `raceStartUs` is captured, and MSG_RACE_START is sent to the finish controller. The state machine transitions to RACE_RACING.
 
@@ -119,8 +119,8 @@ At CD_GO, gates drop (Gate Drop mode) or stay armed (Reaction/Pro modes), `raceS
 
 In Reaction/Pro/Dial-In modes, the Left and Right Lane buttons act as car-release triggers:
 
-* **During COUNTDOWN**: A button press before CD_GO is an early start → gate drops, foul flag set, `carStartUs` recorded.
-* **During RACING**: A button press after GO → gate drops, `carStartUs` recorded, reaction time calculated.
+* **During COUNTDOWN**: A button press before CD_GO is an early start -> gate drops, foul flag set, `carStartUs` recorded.
+* **During RACING**: A button press after GO -> gate drops, `carStartUs` recorded, reaction time calculated.
 
 Reaction time = `|raceStartUs - carStartUs|` (absolute difference; stored as unsigned microseconds). A foul reaction time is *added* to race time at the finish controller; a clean reaction time is *subtracted*.
 
@@ -138,8 +138,8 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 #### Pin Assignments
 | Function | Pin |
 |----------|-----|
-| Start button | A6 (analog, active ≤512) |
-| Mode button | A7 (analog, active ≤512) |
+| Start button | A6 (analog, active <=512) |
+| Mode button | A7 (analog, active <=512) |
 | Left Lane button | D18 (digital, active LOW, external pull-up) |
 | Right Lane button | D19 (digital, active LOW, external pull-up) |
 | Lights shift-register data | D2 |
@@ -158,7 +158,7 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 
 #### Adding Race Modes
 1. Extend `raceMode` enum in `raceTypes.h`
-2. If the mode should be reachable via the mode button, add it to `nextMode()` in `modeMachine` (startController.cpp). Modes only reachable via BLE (like Dial-In) are intentionally omitted from `nextMode()` but still need the `DIALIIN → GATEDROP` exit case so the operator can leave the mode via button.
+2. If the mode should be reachable via the mode button, add it to `nextMode()` in `modeMachine` (startController.cpp). Modes only reachable via BLE (like Dial-In) are intentionally omitted from `nextMode()` but still need the `DIALIIN -> GATEDROP` exit case so the operator can leave the mode via button.
 3. Define light pattern in both `selfTransition()` and `rxTransition()` of `modeMachine`
 4. Add countdown delay case in `CountDownCtx::tick()` if different from 500 ms
 

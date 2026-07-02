@@ -5,7 +5,7 @@
 
 ## Context
 
-Two controllers coordinate over UART to run a heat. Either controller can detect a failure that makes the heat result invalid — a missed serial message, a sensor failure, or a timeout. The system needs a clear, documented rule for *when* to abort a heat versus when to continue with degraded data.
+Two controllers coordinate over UART to run a heat. Either controller can detect a failure that makes the heat result invalid -- a missed serial message, a sensor failure, or a timeout. The system needs a clear, documented rule for *when* to abort a heat versus when to continue with degraded data.
 
 The `forceIdle()` mechanism lets either controller immediately reset to IDLE and fire a best-effort `MSG_RACE_STATE(IDLE)` so the peer can follow. It replaced the earlier "halt and blink" behavior, which required a power cycle to recover.
 
@@ -13,7 +13,7 @@ The `forceIdle()` mechanism lets either controller immediately reset to IDLE and
 
 **Abort a heat (call `forceIdle()`) only when the result would be untrustworthy and the heat must be re-run.**
 
-A result is untrustworthy when a required data dependency was permanently lost — not merely delayed or imprecise.
+A result is untrustworthy when a required data dependency was permanently lost -- not merely delayed or imprecise.
 
 ### Current abort triggers
 
@@ -36,11 +36,11 @@ A result is untrustworthy when a required data dependency was permanently lost �
 
 `MSG_ERROR` is an abort notification, not a general-purpose warning channel. When SC calls `txError()` before `forceIdle()`, it serves as a best-effort "I am aborting" signal to FC. FC that receives `MSG_ERROR` calls `forceIdle()` to stay in sync.
 
-**Asymmetry:** SC does **not** forceIdle on `rx.lastErrorCode`. This is intentional — FC currently only sends `MSG_ERROR` as the missing-reaction-time warning, which is informational and does not require SC to abort. No current FC code path sends `MSG_ERROR` as a halt signal. If that changes in the future, the convention must be updated here and the SC loop must add a `lastErrorCode` check.
+**Asymmetry:** SC does **not** forceIdle on `rx.lastErrorCode`. This is intentional -- FC currently only sends `MSG_ERROR` as the missing-reaction-time warning, which is informational and does not require SC to abort. No current FC code path sends `MSG_ERROR` as a halt signal. If that changes in the future, the convention must be updated here and the SC loop must add a `lastErrorCode` check.
 
 ### Known over-conservatism: MSG_FOUL in GATEDROP mode
 
-In `MODE_GATEDROP`, no reaction-time buttons are polled during COUNTDOWN or RACING, so `laneStartUs[]` is never set and `isFoul()` always returns false. The `MSG_FOUL` payload is always `0b00`. A `MSG_FOUL` TX failure in GATEDROP mode aborts a heat whose result would have been correct even without the message — because FC defaults to no-foul when no foul message is received, matching the always-zero payload.
+In `MODE_GATEDROP`, no reaction-time buttons are polled during COUNTDOWN or RACING, so `laneStartUs[]` is never set and `isFoul()` always returns false. The `MSG_FOUL` payload is always `0b00`. A `MSG_FOUL` TX failure in GATEDROP mode aborts a heat whose result would have been correct even without the message -- because FC defaults to no-foul when no foul message is received, matching the always-zero payload.
 
 This over-conservatism is accepted for v1.0. A future refinement could suppress the abort when mode is GATEDROP and foul mask is zero, but the added complexity is not justified for the rare TX-failure scenario.
 

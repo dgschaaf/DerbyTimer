@@ -6,7 +6,7 @@
 
 ## Philosophy
 
-DerbyTimer uses a layered test strategy: offline tests (L1–L2) catch logic errors without any hardware; integration tests (L3) validate the serial protocol between real Nanos; built-in firmware tests (L4–L5) run on the deployed hardware itself. Hardware bring-up tests live separately under `hardware/` and are used once when assembling a new PCB.
+DerbyTimer uses a layered test strategy: offline tests (L1-L2) catch logic errors without any hardware; integration tests (L3) validate the serial protocol between real Nanos; built-in firmware tests (L4-L5) run on the deployed hardware itself. Hardware bring-up tests live separately under `hardware/` and are used once when assembling a new PCB.
 
 Run the cheapest layer first. Only escalate to hardware when the layer below passes.
 
@@ -16,17 +16,17 @@ Run the cheapest layer first. Only escalate to hardware when the layer below pas
 
 | Layer | What it tests | Where to find it | How to run |
 |-------|--------------|-----------------|------------|
-| L1 — Static Analysis | Compiler warnings, undefined behavior, type mismatches | Build flags (`--warnings all`) + cppcheck extension | Compile either controller in VS Code (`Ctrl+Shift+B`) |
-| L2 — Desktop Unit Tests | Pure C++ logic (bitmasks, timing math, state machine transitions) | `firmware/test/native/` | `pio test -e native` |
-| L3a — Serial Protocol Tests | Full UART message exchange between two Nanos | `firmware/fwTest/` | Upload sketches to two Nanos; see `derbySerialTester_Documentation.md` |
-| L3b — UART Monitor | Protocol inspection and scripted injection from a laptop | `firmware/tools/uart_monitor.py` | `python firmware/tools/uart_monitor.py <COMx>` |
-| L4 — RACE_TEST Self-Test | All peripherals on both controllers (lights, gates, sensors, display, comms) | Built into firmware | Hold MODE button at power-up; read results from lights/display |
-| L5 — Debug Serial Mode | State transitions, TX/RX events, sensor fires logged over serial | `firmware/lib/shared/debug.h` | Compile with `-DDERBY_DEBUG`; open serial monitor at 115200 |
+| L1 -- Static Analysis | Compiler warnings, undefined behavior, type mismatches | Build flags (`--warnings all`) + cppcheck extension | Compile either controller in VS Code (`Ctrl+Shift+B`) |
+| L2 -- Desktop Unit Tests | Pure C++ logic (bitmasks, timing math, state machine transitions) | `firmware/test/native/` | `pio test -e native` |
+| L3a -- Serial Protocol Tests | Full UART message exchange between two Nanos | `firmware/fwTest/` | Upload sketches to two Nanos; see `derbySerialTester_Documentation.md` |
+| L3b -- UART Monitor | Protocol inspection and scripted injection from a laptop | `firmware/tools/uart_monitor.py` | `python firmware/tools/uart_monitor.py <COMx>` |
+| L4 -- RACE_TEST Self-Test | All peripherals on both controllers (lights, gates, sensors, display, comms) | Built into firmware | Hold MODE button at power-up; read results from lights/display |
+| L5 -- Debug Serial Mode | State transitions, TX/RX events, sensor fires logged over serial | `firmware/lib/shared/debug.h` | Compile with `-DDERBY_DEBUG`; open serial monitor at 115200 |
 | Hardware Tests | Board-level peripheral bring-up after PCB assembly | `hardware/hwTest/` | Upload standalone `.ino` sketch; follow `.md` checklist |
 
 ---
 
-## L2 Desktop Unit Tests — Details
+## L2 Desktop Unit Tests -- Details
 
 **Location:** `firmware/test/native/`
 
@@ -63,14 +63,14 @@ Requires MinGW GCC on Windows: `choco install mingw` (Chocolatey sets the PATH p
 
 ---
 
-## L3a Serial Protocol Tests — Details
+## L3a Serial Protocol Tests -- Details
 
 **Location:** `firmware/fwTest/`
 
 Two sketches run on two separate Arduino Nanos wired cross-connected (D5/D6 SoftwareSerial):
 
-- `derbySerialTester.ino` — interactive test driver; sends messages and checks ACK/NACK/retry behavior
-- `derbySerialResponder.ino` — simulates the peer controller; responds to messages
+- `derbySerialTester.ino` -- interactive test driver; sends messages and checks ACK/NACK/retry behavior
+- `derbySerialResponder.ino` -- simulates the peer controller; responds to messages
 
 Full wiring diagram, command reference, and test protocol: `firmware/fwTest/derbySerialTester_Documentation.md`
 
