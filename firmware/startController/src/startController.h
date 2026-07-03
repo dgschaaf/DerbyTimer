@@ -31,6 +31,44 @@ struct raceTimingData {
 	}
 };
 
+// Drives the christmas-tree countdown timing: tick() advances
+// CD_STAGED -> Y3 -> Y2 -> Y1 -> CD_GO on timed intervals (400 ms in PRO
+// mode, which skips straight to Y1; 500 ms otherwise). The caller passes the
+// current time into tick() -- the firmware passes millis(), tests pass a
+// scripted clock -- so the sequence is a pure function of its inputs.
+// handleCountdown() watches changed() to fire light updates and the GO
+// actions exactly once. Reset to CD_IDLE at IDLE entry, to CD_STAGED at
+// COUNTDOWN entry. Exposed here so test_countdown can drive the sequence.
+struct CountDownCtx {
+	countdownState state  = CD_IDLE;
+	countdownState prev   = CD_IDLE;
+	unsigned long  timer  = 0;
+	unsigned long  delay  = 0;
+
+	bool changed() const { return state != prev; }
+
+	void tick(raceMode mode, unsigned long now) {
+		prev = state;
+		switch (state) {
+			case CD_STAGED:
+				delay = (mode == MODE_PRO) ? 400 : 500;
+				state = (mode == MODE_PRO) ? CD_Y1 : CD_Y3;
+				timer = now;
+				break;
+			case CD_Y3:
+				if (now - timer >= delay) { state = CD_Y2; timer = now; }
+				break;
+			case CD_Y2:
+				if (now - timer >= delay) { state = CD_Y1; timer = now; }
+				break;
+			case CD_Y1:
+				if (now - timer >= delay) { state = CD_GO; timer = now; }
+				break;
+			default: break;
+		}
+	}
+};
+
 // Public API
 void startControllerSetup();
 void startControllerLoop();

@@ -174,43 +174,8 @@ static modeSelect md					= {MODE_GATEDROP, MODE_GATEDROP};
 static raceTimingData raceTiming			= {0, {0, 0}};
 static uint32_t tNow					= 0;
 
-// countdown
-// Drives the christmas-tree countdown timing: tick() advances
-// CD_STAGED -> Y3 -> Y2 -> Y1 -> CD_GO on millis() intervals (400 ms in PRO
-// mode, which skips straight to Y1; 500 ms otherwise). handleCountdown()
-// watches changed() to fire light updates and the GO actions exactly once.
-// Reset to CD_IDLE at IDLE entry, to CD_STAGED at COUNTDOWN entry.
-// One instance: `cd`.
-struct CountDownCtx {
-	countdownState state  = CD_IDLE;
-	countdownState prev   = CD_IDLE;
-	unsigned long  timer  = 0;
-	unsigned long  delay  = 0;
-
-	bool changed() const { return state != prev; }
-
-	void tick(raceMode mode) {
-		prev = state;
-		unsigned long now = millis();
-		switch (state) {
-			case CD_STAGED:
-				delay = (mode == MODE_PRO) ? 400 : 500;
-				state = (mode == MODE_PRO) ? CD_Y1 : CD_Y3;
-				timer = now;
-				break;
-			case CD_Y3:
-				if (now - timer >= delay) { state = CD_Y2; timer = now; }
-				break;
-			case CD_Y2:
-				if (now - timer >= delay) { state = CD_Y1; timer = now; }
-				break;
-			case CD_Y1:
-				if (now - timer >= delay) { state = CD_GO; timer = now; }
-				break;
-			default: break;
-		}
-	}
-};
+// countdown (CountDownCtx defined in startController.h so test_countdown can
+// drive the tree sequence with a scripted clock). One instance: `cd`.
 static CountDownCtx cd;
 
 // results
@@ -411,7 +376,7 @@ static void handleCountdown(){
 
 	handleEarlyStarts(tNow, md.current);
 
-	cd.tick(md.current);
+	cd.tick(md.current, millis());
 
 	if (cd.state == CD_GO && cd.changed()) {
 		handleCountdownGoActions(tNow);
