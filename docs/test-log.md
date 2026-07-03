@@ -1,6 +1,6 @@
 # Test Run Log
 
-Hardware-free runs only (L2 native unit tests). All other layers require physical hardware.
+Every verification run belongs here: hardware-free (L2 native unit tests) and bench runs alike. Bench procedures live in [bench-test-protocol.md](bench-test-protocol.md).
 
 | Date | Scope | Command | Result | Notes |
 |------|-------|---------|--------|-------|
