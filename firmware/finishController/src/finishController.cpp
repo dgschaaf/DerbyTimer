@@ -16,6 +16,7 @@
 #include <Arduino.h>
 #include "raceTypes.h"
 #include "serialComm.h"
+#include "outbox.h"
 #include "stateMachine.h"
 #include "finishController.h"
 #include "display.h"
@@ -23,18 +24,15 @@
 #include "debug.h"
 
 
-// Tracks the FC's one outbound heat-event message: MSG_WINNER. queue() fires
-// once at COMPLETE entry; checkOutcomes() polls every loop and re-sends once
-// on failure (finish times still display even if the SC never hears the
-// winner). COMPLETE refuses to advance to IDLE while anyPending() is true.
-// One instance: `pending`.
-struct PendingTx {
-	bool    winner         = false;
-	uint8_t winnerAttempts = 0;
-	bool anyPending() const { return winner; }
-	void queue(serialMsgID id);
-	void checkOutcomes();
+// The FC's one heat-event delivery rule (its row of the ADR-0004 abort
+// criteria): a lost MSG_WINNER only costs the SC's win-light animation --
+// the finish times are already on the lane displays -- so it gets one
+// automatic resend, then is dropped silently. Tracking starts at COMPLETE
+// entry; COMPLETE refuses to advance to IDLE while outbox.anyPending().
+static const OutboxEntry kOutboxTable[] = {
+	{ MSG_WINNER, OutboxPolicy::RETRY_ONCE, err_NULL },
 };
+static Outbox outbox = { kOutboxTable, sizeof(kOutboxTable) / sizeof(kOutboxTable[0]) };
 
 // Workbook for the FC's L4 RACE_TEST self-test (display segment test,
 // sensor beam-break check, SC comm check). Owned by handleRaceTest();
@@ -70,9 +68,7 @@ struct FCTestCtx {
 };
 
 static bool needReact              = false;
-static PendingTx pending;
 static FCTestCtx fct;
-static uint8_t winnerMask          = 0;
 static unsigned long countdownEntryMs = 0;   // P1-11: SC-silent timeout anchor
 
 static HeatResults    heatResult	= {};
@@ -156,7 +152,16 @@ void finishControllerLoop() {
 	}
 
 	txService();
-	pending.checkOutcomes();
+
+	// Symmetry with the SC: act on the verdict even though the FC has no
+	// FATAL entries today, so a future FC message that IS fatal (Race
+	// Manager era) needs only a table row, not new plumbing here.
+	OutboxVerdict verdict = outbox.checkOutcomes();
+	if (verdict.abortRequired) {
+		DBG2("[FC] tx fail->forceIdle err=", (uint8_t)verdict.code);
+		txError(verdict.code);
+		stm.forceIdle();
+	}
 }
 
 /* =========================================================================
@@ -286,7 +291,7 @@ static void handleComplete(){
 		bool rightValid = !heatResult.right.foul && !heatResult.right.dnf;
 		needReact = (currentMode == MODE_REACTION || currentMode == MODE_PRO)
 		          && (leftValid || rightValid);
-		winnerMask = 0;
+		uint8_t winnerMask = 0;
 		if (!leftValid && !rightValid) {
 			winnerMask = winner_noResult;
 		} else {
@@ -295,14 +300,16 @@ static void handleComplete(){
 			if (!heatResult.left.winner && !heatResult.right.winner) winnerMask |= winner_tie;
 		}
 		DBG2("[FC] winner mask=", winnerMask);
-		pending.queue(MSG_WINNER);
+		// The engine resends from the payload captured here on failure, so the
+		// mask no longer needs to outlive this pass.
+		if (txWinner(winnerMask)) outbox.track(MSG_WINNER);
 	}
 
 	if(rx.DisplayAdvanceFlag) {
 		if(needReact){
 			displayReactionTimes();
 			needReact			= false;
-		} else if (!pending.anyPending()) {
+		} else if (!outbox.anyPending()) {
 			// Advance to IDLE only once MSG_WINNER has resolved -- the gate
 			// decides WHETHER to request, not whether to service.
 			stm.request(RACE_IDLE);
@@ -544,35 +551,4 @@ static void displayReactionTimes() {
 
 	if (heatResult.right.foul || heatResult.right.dnf) clearDisplay(LANE_RIGHT);
 	else updateDisplay(heatResult.right.reactionTimeUs, LANE_RIGHT);
-}
-
-/* =========================================================================
- *                        GENERIC HELPER FUNCTIONS
- * ========================================================================= */
-void PendingTx::queue(serialMsgID id) {
-	switch(id) {
-		case MSG_WINNER:
-			if (txWinner(winnerMask)) winner = true;
-			break;
-		default:
-			break;
-	}
-}
-
-void PendingTx::checkOutcomes() {
-	if (winner) {
-		txStatus s = txStatusOf(MSG_WINNER);
-		if (s == TX_ACKED) {
-			winner = false;
-			winnerAttempts = 0;
-		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
-			if (winnerAttempts < 1) {
-				winnerAttempts++;
-				txWinner(winnerMask);   // one re-send attempt; finish times still display if this also fails
-			} else {
-				winner = false;
-				winnerAttempts = 0;
-			}
-		}
-	}
 }

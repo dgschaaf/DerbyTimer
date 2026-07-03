@@ -124,12 +124,12 @@ state "Race Complete" as RaceComplete {
   RaceComplete : entry / computeHeatResults(heatResult, timingInputs)
   RaceComplete : entry / displayCarTimes()
   RaceComplete : entry / needReact = true if MODE_REACTION or MODE_PRO
-  RaceComplete : entry / pending.queue(MSG_WINNER)
-  RaceComplete : do / pending.checkOutcomes()  [retries once on TX_FAILED; soft-fail after 2 attempts]
+  RaceComplete : entry / txWinner(winnerMask); outbox.track(MSG_WINNER)  [RETRY_ONCE policy]
+  RaceComplete : do / outbox.checkOutcomes()  [resends once on failure, then drops silently]
   RaceComplete : do / if DisplayAdvanceFlag AND needReact: displayReactionTimes(), needReact = false
-  RaceComplete : do / if DisplayAdvanceFlag AND !needReact AND !pending.anyPending(): stm.target = RACE_IDLE
-  RaceComplete : do / stm.selfTransition(stm.target)
-  RaceComplete : exit / reset heatResult, timingInputs
+  RaceComplete : do / if DisplayAdvanceFlag AND !needReact AND !outbox.anyPending(): stm.request(RACE_IDLE)
+  RaceComplete : do / stm.service(true)  [FC initiates the exit; received edges held]
+  RaceComplete : exit / reset heatResult, timingInputs  [takeExit()]
 }
 
 note right of RaceComplete
@@ -172,7 +172,7 @@ Countdown   --> Idle         : 10 s SC-silent timeout\n[stm.forceIdle()]
 Racing      --> RaceComplete : leftRecorded AND rightRecorded\n[sensor ISR or 10 s DNF timeout]
 Racing      --> Idle         : MSG_ERROR received\n[stm.forceIdle()]
 
-RaceComplete --> Idle        : MSG_DISP_ADVANCE\n[when !needReact AND !pending.anyPending()\n-> stm.selfTransition(IDLE)]
+RaceComplete --> Idle        : MSG_DISP_ADVANCE\n[when !needReact AND !outbox.anyPending()\n-> stm.request(IDLE)]
 
 
 @enduml
