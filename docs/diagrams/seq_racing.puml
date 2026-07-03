@@ -43,18 +43,19 @@ group raceMode = ReactionStd or ReactionPro
   BL_BTN -> SC : buttonPressed(Left)
   SC -> SC     : raceTime.leftStartUs = micros()
   SC -> GL     : dropGate(gateL)
-  SC -> SC     : pending.leftReact = true
+  SC -> SC     : queueHeatMsg(MSG_LEFT_REACT)
 
   BR_BTN -> SC : buttonPressed(Right)
   SC -> SC     : raceTime.rightStartUs = micros()
   SC -> GR     : dropGate(gateR)
-  SC -> SC     : pending.rightReact = true
+  SC -> SC     : queueHeatMsg(MSG_RIGHT_REACT)
 
   note over SC
-    Once both gates drop, pending messages are
-    drained one at a time (FOUL first, then
-    LEFT_REACT, then RIGHT_REACT) before the
-    state machine will accept RACE_COMPLETE.
+    Queued heat messages drain through the TX
+    FIFO one at a time (FOUL first, then
+    LEFT_REACT, then RIGHT_REACT); the state
+    machine holds off RACE_COMPLETE while
+    outbox.anyPending() is true.
   end note
 
   SC -> FC : MSG_FOUL (foulMask)

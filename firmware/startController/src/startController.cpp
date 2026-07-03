@@ -16,6 +16,7 @@
 #include <Arduino.h>
 #include "startController.h"
 #include "serialComm.h"
+#include "outbox.h"
 #include "stateMachine.h"
 #include "lights.h"
 #include "gates.h"
@@ -148,25 +149,22 @@ struct RaceTestCtx {
 	void nextPhase(uint8_t p) { phase = p; subPhase = 0; startTimer(); }
 };
 
-// Tracks which heat-event messages the SC has queued but not yet seen resolve
-// (ACK/timeout/fail). queue() is called once at the event; checkOutcomes()
-// polls every loop and decides per message whether a failure aborts the heat
-// (RACE_START, FOUL -> forceIdle) or is tolerated (reaction times, display
-// advance). RACING refuses to follow COMPLETE while anyPending() is true so
-// heat data cannot be lost in transit. One instance: `pending`.
-struct PendingTx {
-	bool raceStart  = false;
-	bool foulStatus = false;
-	bool leftReact  = false;
-	bool rightReact = false;
-	bool dispAdv    = false;
-
-	bool anyPending() const {
-		return raceStart || foulStatus || leftReact || rightReact || dispAdv;
-	}
-	void queue(serialMsgID id);       // enqueues the message and sets the flag
-	void checkOutcomes();             // polls txStatusOf() and clears flags on terminal status
+// The SC's heat-event delivery rules (its rows of the ADR-0004 abort
+// criteria): a permanently failed RACE_START means the FC's sensors were
+// never armed, a lost FOUL means the FC would compute wrong car times --
+// both make the heat untrustworthy. Reaction times and display advance are
+// record-keeping only. queueHeatMsg() builds each payload and starts
+// tracking; the main loop acts on checkOutcomes() verdicts (txError +
+// forceIdle). RACING refuses to follow COMPLETE while outbox.anyPending()
+// so heat data cannot be lost in transit.
+static const OutboxEntry kOutboxTable[] = {
+	{ MSG_RACE_START,   OutboxPolicy::FATAL,     err_START_TX_TIMEOUT },
+	{ MSG_FOUL,         OutboxPolicy::FATAL,     err_STATE_TX_TIMEOUT },
+	{ MSG_LEFT_REACT,   OutboxPolicy::TOLERATED, err_NULL },
+	{ MSG_RIGHT_REACT,  OutboxPolicy::TOLERATED, err_NULL },
+	{ MSG_DISP_ADVANCE, OutboxPolicy::TOLERATED, err_NULL },
 };
+static Outbox outbox = { kOutboxTable, sizeof(kOutboxTable) / sizeof(kOutboxTable[0]) };
 
 // State & mode machine instances
 static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
@@ -215,8 +213,6 @@ struct CountDownCtx {
 };
 static CountDownCtx cd;
 
-// racing
-static PendingTx pending;
 // results
 static bool          winLightsPend  = false;   // true until winner data received or timed out
 static unsigned long winLightTimer  = 0;        // millis() timestamp when RACE_COMPLETE was entered
@@ -240,6 +236,7 @@ static void handleEarlyStarts(unsigned long tn, raceMode mode);
 static void handleCountdownGoActions(uint32_t tn);
 static void handleTrackTriggers(uint32_t tn);
 static void handleDisplayAdvance();
+static void queueHeatMsg(serialMsgID id);
 
 // ==================== RACE_TEST SUPPORT ====================
 // Light chase sequence: L→R sweep, R→L sweep, 3× all-on/all-off
@@ -311,7 +308,15 @@ void startControllerLoop(){
 	}
 
 	txService();
-	pending.checkOutcomes();
+
+	OutboxVerdict verdict = outbox.checkOutcomes();
+	if (verdict.abortRequired) {
+		// A FATAL heat message permanently failed -- the result cannot be
+		// trusted. Tell the FC why, then reset the heat.
+		DBG2("[SC] tx fail->forceIdle err=", (uint8_t)verdict.code);
+		txError(verdict.code);
+		stm.forceIdle();
+	}
 }
 
 /* =========================================================================
@@ -438,7 +443,7 @@ static void handleCountdownGoActions(uint32_t tn){
 	DBG("[SC] GO -> queue RACE_START");
 	stm.request(RACE_RACING);
 	raceTiming.recordRaceStart(tn);
-	pending.queue(MSG_RACE_START);
+	queueHeatMsg(MSG_RACE_START);
 
 	if (md.current == MODE_GATEDROP){
 		dropGate(LANE_LEFT);
@@ -456,12 +461,12 @@ static void handleCountdownGoActions(uint32_t tn){
 static void handleRacing(){
 	if (stm.takeEntry()) {
 		DBG("[SC] ->RACING");
-		pending.queue(MSG_FOUL);
+		queueHeatMsg(MSG_FOUL);
 		// Fouled lanes triggered during COUNTDOWN -- their gates are already
 		// dropped so handleTrackTriggers() can never fire for them. Send their
 		// reaction times now so FC's foul car-time math has real data.
-		if (raceTiming.isFoul(LANE_LEFT))  pending.queue(MSG_LEFT_REACT);
-		if (raceTiming.isFoul(LANE_RIGHT)) pending.queue(MSG_RIGHT_REACT);
+		if (raceTiming.isFoul(LANE_LEFT))  queueHeatMsg(MSG_LEFT_REACT);
+		if (raceTiming.isFoul(LANE_RIGHT)) queueHeatMsg(MSG_RIGHT_REACT);
 	}
 
 	tNow = micros();
@@ -473,7 +478,7 @@ static void handleRacing(){
 	// Data-integrity hold: only follow the FC's COMPLETE once every queued
 	// heat message has resolved. The hold defers the state message; it is
 	// applied on the first pass after the queue drains.
-	stm.service(pending.anyPending());
+	stm.service(outbox.anyPending());
 }
 
 static void handleTrackTriggers(uint32_t tn){
@@ -481,13 +486,13 @@ static void handleTrackTriggers(uint32_t tn){
 		DBG("[SC] trigger: LEFT");
 		raceTiming.recordTrigger(LANE_LEFT,  tn);
 		dropGate(LANE_LEFT);
-		pending.queue(MSG_LEFT_REACT);
+		queueHeatMsg(MSG_LEFT_REACT);
 	}
 	if (isRightPressed() && isLaneUp(LANE_RIGHT)){
 		DBG("[SC] trigger: RIGHT");
 		raceTiming.recordTrigger(LANE_RIGHT, tn);
 		dropGate(LANE_RIGHT);
-		pending.queue(MSG_RIGHT_REACT);
+		queueHeatMsg(MSG_RIGHT_REACT);
 	}
 }
 
@@ -530,7 +535,7 @@ static void handleComplete(){
 static void handleDisplayAdvance(){
 	if (isStartPressed() && startReleased){
 		startReleased		= false;
-		pending.queue(MSG_DISP_ADVANCE);
+		queueHeatMsg(MSG_DISP_ADVANCE);
 	}
 	if (!isStartPressed()) startReleased = true;
 }
@@ -693,74 +698,32 @@ static void handleRaceTest(){
  *                        GENERIC HELPER FUNCTIONS
  * ========================================================================= */
 
-void PendingTx::queue(serialMsgID id) {
+// Builds the payload for a heat-event message, enqueues it, and starts
+// outbox tracking. Tracking begins only if the enqueue was accepted -- a
+// rejected duplicate is already tracked from its original send.
+static void queueHeatMsg(serialMsgID id) {
+	bool sent = false;
 	switch(id) {
 		case MSG_RACE_START:
-			if (txRaceStart())                                          raceStart  = true;
+			sent = txRaceStart();
 			break;
 		case MSG_FOUL: {
 			uint8_t mask = (raceTiming.isFoul(LANE_LEFT)  ? foul_left  : 0)
 			             | (raceTiming.isFoul(LANE_RIGHT) ? foul_right : 0);
-			if (txFoulStatus(mask)) foulStatus = true;
+			sent = txFoulStatus(mask);
 			break;
 		}
 		case MSG_LEFT_REACT:
-			if (txReactionTime(raceTiming.reactionTimeUs(LANE_LEFT),  LANE_LEFT))  leftReact  = true;
+			sent = txReactionTime(raceTiming.reactionTimeUs(LANE_LEFT),  LANE_LEFT);
 			break;
 		case MSG_RIGHT_REACT:
-			if (txReactionTime(raceTiming.reactionTimeUs(LANE_RIGHT), LANE_RIGHT)) rightReact = true;
+			sent = txReactionTime(raceTiming.reactionTimeUs(LANE_RIGHT), LANE_RIGHT);
 			break;
 		case MSG_DISP_ADVANCE:
-			if (txDisplayAdvance())                                     dispAdv    = true;
+			sent = txDisplayAdvance();
 			break;
 		default:
 			break;
 	}
-}
-
-void PendingTx::checkOutcomes() {
-	if (raceStart) {
-		txStatus s = txStatusOf(MSG_RACE_START);
-		if (s == TX_ACKED) {
-			raceStart = false;
-		} else if (s == TX_TIMEOUT || s == TX_FAILED) {
-			// FC sensors may not be armed — heat is unrecoverable. Abort to IDLE.
-			raceStart = false;
-			DBG("[SC] RACE_START fail->forceIdle");
-			txError(err_START_TX_TIMEOUT);
-			stm.forceIdle();
-		}
-	}
-	if (foulStatus) {
-		txStatus s = txStatusOf(MSG_FOUL);
-		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			if (s != TX_ACKED) {
-				// Foul data lost — result cannot be trusted. Abort to IDLE.
-				DBG("[SC] FOUL fail->forceIdle");
-				txError(err_STATE_TX_TIMEOUT);
-				stm.forceIdle();
-			}
-			foulStatus = false;
-		}
-	}
-	if (leftReact) {
-		txStatus s = txStatusOf(MSG_LEFT_REACT);
-		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			// Soft fail: reaction time is record-keeping only in REACTION/PRO mode.
-			// FC already warned via P1-8 guard; continue without halting.
-			leftReact = false;
-		}
-	}
-	if (rightReact) {
-		txStatus s = txStatusOf(MSG_RIGHT_REACT);
-		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			rightReact = false;
-		}
-	}
-	if (dispAdv) {
-		txStatus s = txStatusOf(MSG_DISP_ADVANCE);
-		if (s == TX_ACKED || s == TX_TIMEOUT || s == TX_FAILED) {
-			dispAdv = false;
-		}
-	}
+	if (sent) outbox.track(id);
 }

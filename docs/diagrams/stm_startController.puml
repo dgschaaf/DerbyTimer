@@ -112,22 +112,18 @@ end note
 ' RACING
 ' ============================================================
 state "RACING" as RACING {
-  RACING : entry / pending = {leftReact=false, rightReact=false, foulStatus=true}
-  RACING : entry / build foulMask from raceResults.leftFoul + rightFoul
-  RACING : entry / resetTxState for FOUL, LEFT_REACT, RIGHT_REACT
-  RACING : do / handleTrackTriggers()  [reaction modes: btn press -> dropGate + record carStartUs]
-  RACING : do / calcReactionTimes() once gate drops
-  RACING : do / drain PendingMsgs one at a time: MSG_FOUL then MSG_LEFT_REACT then MSG_RIGHT_REACT
-  RACING : do / stm.rxTransition(rx.State)  [blocked until all PendingMsgs sent]
+  RACING : entry / queueHeatMsg(MSG_FOUL)  [foul mask from raceTiming]
+  RACING : entry / fouled lanes: queueHeatMsg(MSG_LEFT_REACT / MSG_RIGHT_REACT)
+  RACING : do / handleTrackTriggers()  [reaction modes: btn press -> record trigger + dropGate + queueHeatMsg(REACT)]
+  RACING : do / stm.service(outbox.anyPending())  [follows FC's COMPLETE once queued messages resolve]
 }
 
 note right of RACING
-  PendingMsgs guard: stm.rxTransition()
-  is not called until foulStatus,
-  leftReact, and rightReact are all
-  TX_ACKED or timed out. This prevents
-  a premature COMPLETE transition before
-  the finishController has reaction data.
+  Data-integrity hold: stm.service() defers
+  the FC's COMPLETE edge while any queued
+  heat message (foul, reaction times) is
+  still unresolved, so the finishController
+  has all heat data before results are final.
 end note
 
 ' ============================================================
