@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "raceTypes.h"
 #include "sensors.h"
 
 // Global configuration.  Adjust leftPin/rightPin for your board.
@@ -10,13 +11,12 @@ const SensorConfig config = {
   .maxRaceTimeUs = 10000000   // auto complete race after 10 seconds
 };
 
-// Internal state (volatile because accessed from ISR).
+// Internal state (volatile because accessed from ISR). Per-lane values are
+// indexed by Lane (LANE_LEFT = 0, LANE_RIGHT = 1).
 static volatile uint32_t t0_us          = 0;
-static volatile uint32_t leftFinishTime = 0;
-static volatile uint32_t rightFinishTime= 0;
-static volatile bool leftLatched        = false;
-static volatile bool rightLatched       = false;
-static volatile bool armed              = false;
+static volatile uint32_t finishTime[2]  = {0, 0};
+static volatile bool     latched[2]     = {false, false};
+static volatile bool     armed          = false;
 
 // Exposed finish flags (declared extern in sensors.h).
 volatile bool leftFinished  = false;
@@ -25,6 +25,23 @@ volatile bool rightFinished = false;
 // Forward declarations of ISRs.
 static void leftSensorISR();
 static void rightSensorISR();
+
+// The single copy of the beam-break capture rules, shared by both lanes:
+// record the finish only if armed, not already latched, and past the
+// minimum race time (which rejects the power-up transient). nowUs is passed
+// in -- the ISRs supply micros(), tests supply a controlled clock -- so the
+// rules can be exercised on the desktop even though an ISR never can.
+static void onBeamBreak(Lane lane, uint32_t nowUs) {
+    if (!armed || latched[lane]) return;
+
+    uint32_t elapsed = nowUs - t0_us;
+    if (elapsed > config.minRaceTimeUs) {
+        finishTime[lane] = elapsed;
+        latched[lane]    = true;
+        if (lane == LANE_LEFT) leftFinished  = true;
+        else                   rightFinished = true;
+    }
+}
 
 void setupSensors() {
     // Configure pins only.  Interrupts are attached in armSensors().
@@ -35,14 +52,14 @@ void setupSensors() {
 void armSensors(uint32_t raceStartMicros) {
     // Reset state and record start time.
     noInterrupts();
-    t0_us          = raceStartMicros;
-    leftFinishTime = 0;
-    rightFinishTime= 0;
-    leftLatched    = false;
-    rightLatched   = false;
-    leftFinished   = false;
-    rightFinished  = false;
-    armed          = true;
+    t0_us               = raceStartMicros;
+    finishTime[LANE_LEFT]  = 0;
+    finishTime[LANE_RIGHT] = 0;
+    latched[LANE_LEFT]     = false;
+    latched[LANE_RIGHT]    = false;
+    leftFinished        = false;
+    rightFinished       = false;
+    armed               = true;
     interrupts();
 
     // Attach interrupts on the configured edge.
@@ -57,24 +74,24 @@ void disarmSensors() {
     detachInterrupt(digitalPinToInterrupt(config.rightPin));
 
     noInterrupts();
-    armed         = false;
-    leftLatched   = false;
-    rightLatched  = false;
-    leftFinished  = false;
-    rightFinished = false;
+    armed               = false;
+    latched[LANE_LEFT]  = false;
+    latched[LANE_RIGHT] = false;
+    leftFinished        = false;
+    rightFinished       = false;
     interrupts();
 }
 
 uint32_t getLeftTimeUs() {
     noInterrupts();
-    uint32_t t = leftFinishTime;
+    uint32_t t = finishTime[LANE_LEFT];
     interrupts();
     return t;
 }
 
 uint32_t getRightTimeUs() {
     noInterrupts();
-    uint32_t t = rightFinishTime;
+    uint32_t t = finishTime[LANE_RIGHT];
     interrupts();
     return t;
 }
@@ -93,29 +110,8 @@ bool isRightFinished() {
     return v;
 }
 
-// ISR for the left lane sensor.  Records the elapsed time only if armed,
-// the finish hasn't already been latched, and the elapsed time exceeds
-// minRaceTimeUs.  Updates leftFinished to true when valid.
-static void leftSensorISR() {
-    if (!armed || leftLatched) return;
-
-    // Compute elapsed time relative to start.
-    uint32_t elapsed = micros() - t0_us;
-    if (elapsed > config.minRaceTimeUs) {
-        leftFinishTime = elapsed;
-        leftLatched    = true;
-        leftFinished   = true;
-    }
-}
-
-// ISR for the right lane sensor.
-static void rightSensorISR() {
-    if (!armed || rightLatched) return;
-
-    uint32_t elapsed = micros() - t0_us;
-    if (elapsed > config.minRaceTimeUs) {
-        rightFinishTime = elapsed;
-        rightLatched    = true;
-        rightFinished   = true;
-    }
-}
+// Interrupt handlers: thin adapters that stamp the current time and defer
+// all decisions to onBeamBreak(). Keeping them trivial is deliberate -- an
+// ISR is the one context that can never be single-stepped or unit-tested.
+static void leftSensorISR()  { onBeamBreak(LANE_LEFT,  micros()); }
+static void rightSensorISR() { onBeamBreak(LANE_RIGHT, micros()); }

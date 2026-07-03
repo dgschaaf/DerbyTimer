@@ -28,6 +28,23 @@ static inline uint32_t micros() { return mockMicros; }
 static inline void delay(uint32_t) {}
 static inline void delayMicroseconds(uint32_t) {}
 
+// ---- GPIO / interrupt stubs ----
+// No-ops so sensor and gate sources compile natively. Tests drive the
+// capture logic by calling onBeamBreak() directly, not through a real ISR.
+#define INPUT   0
+#define OUTPUT  1
+#define RISING  3
+#define FALLING 2
+typedef int PinStatus;   // mbed core exposes this; sensors.cpp uses it
+static inline void pinMode(uint8_t, uint8_t) {}
+static inline void digitalWrite(uint8_t, uint8_t) {}
+static inline int  digitalRead(uint8_t) { return 0; }
+static inline int  digitalPinToInterrupt(uint8_t pin) { return pin; }
+static inline void attachInterrupt(int, void (*)(), int) {}
+static inline void detachInterrupt(int) {}
+static inline void noInterrupts() {}
+static inline void interrupts() {}
+
 // ---- Scriptable serial port ----
 // RX side: bytes the code under test will consume (test calls feed()).
 // TX side: bytes the code under test wrote (test inspects txBuf/txLen).
