@@ -31,10 +31,12 @@ static inline void delayMicroseconds(uint32_t) {}
 // ---- GPIO / interrupt stubs ----
 // No-ops so sensor and gate sources compile natively. Tests drive the
 // capture logic by calling onBeamBreak() directly, not through a real ISR.
-#define INPUT   0
-#define OUTPUT  1
-#define RISING  3
-#define FALLING 2
+#define INPUT    0
+#define OUTPUT   1
+#define RISING   3
+#define FALLING  2
+#define LSBFIRST 0
+#define MSBFIRST 1
 typedef int PinStatus;   // mbed core exposes this; sensors.cpp uses it
 static inline void pinMode(uint8_t, uint8_t) {}
 static inline void digitalWrite(uint8_t, uint8_t) {}
@@ -44,6 +46,11 @@ static inline void attachInterrupt(int, void (*)(), int) {}
 static inline void detachInterrupt(int) {}
 static inline void noInterrupts() {}
 static inline void interrupts() {}
+
+// shiftOut records the last byte pushed so blink tests can assert which light
+// pattern is currently applied, not just the animation's internal counters.
+static uint8_t mockLastShiftOut = 0;
+static inline void shiftOut(uint8_t, uint8_t, uint8_t, uint8_t val) { mockLastShiftOut = val; }
 
 // ---- Scriptable serial port ----
 // RX side: bytes the code under test will consume (test calls feed()).

@@ -48,6 +48,11 @@ byte buildLightConfig(countdownState state, bool FL, bool FR, raceMode mode);
 void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte finalPattern);
 void cancelBlink();
 bool isBlinking();
-bool updateBlink();
+
+// Advance the blink animation one tick; returns false once finished. The main
+// loop calls the zero-arg form (current time = millis()); the time-injected
+// form lets tests drive the animation on a deterministic clock.
+bool updateBlink(unsigned long now);
+inline bool updateBlink() { return updateBlink(millis()); }
 
 #endif  // LIGHTS_H

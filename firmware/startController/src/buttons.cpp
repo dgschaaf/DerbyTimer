@@ -7,8 +7,8 @@ static const byte buttonRight 	= 19;  				// Digital pin
 static const byte buttonStart 	= A6;  				// Analog pin, Arduino sees A6 as 20
 static const byte buttonMode 	= A7;				// Analog pin, Arduino sees A7 as 21
 
-static unsigned long analogCacheTime	= 10;
-static unsigned long analogThreshold	= 512;
+static constexpr unsigned long analogPollIntervalMs = 10;   // re-read the analog buttons at ~100 Hz
+static constexpr int           analogThreshold      = 512;  // ADC midpoint; a read above this counts as pressed
 
 void setupButtons() {
     pinMode(buttonLeft, INPUT);				// External pull-up
@@ -30,7 +30,7 @@ bool isStartPressed() {
     static unsigned long startLastRead = 0;
     static bool startState = false;
     
-    if (millis() - startLastRead >= analogCacheTime) {  // 100Hz sampling
+    if (millis() - startLastRead >= analogPollIntervalMs) {
         startState = analogRead(buttonStart) > analogThreshold;
         startLastRead = millis();
     }
@@ -42,7 +42,7 @@ bool isModePressed() {
     static unsigned long modeLastRead = 0;
     static bool modeState = false;
     
-    if (millis() - modeLastRead >= analogCacheTime) {  // 100Hz sampling
+    if (millis() - modeLastRead >= analogPollIntervalMs) {
         modeState = analogRead(buttonMode) > analogThreshold;
         modeLastRead = millis();
     }

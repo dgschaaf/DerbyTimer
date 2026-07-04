@@ -5,7 +5,11 @@
 static const byte dataPin 		= 2;
 static const byte clockPin 		= 3;
 static const byte latchPin 		= 5;
-BlinkState blinkState 			= {0, 0, 0, 0, 0, 250, false, false, 0};
+
+// Placeholder toggle rate in the initializer; startBlink() overwrites it with
+// the caller's requested rate before any animation runs.
+static constexpr uint16_t kDefaultBlinkRateMs = 250;
+BlinkState blinkState 			= {0, 0, 0, 0, 0, kDefaultBlinkRateMs, false, false, 0};
 
 void setupLights() {
     pinMode(dataPin, OUTPUT);
@@ -66,10 +70,9 @@ void startBlink(byte pattern1, byte pattern2, uint8_t count, uint16_t rate, byte
     updateLights(pattern1);
 }
 
-bool updateBlink() {
+bool updateBlink(unsigned long now) {
     if (!blinkState.active) return false;
-    
-    unsigned long now = millis();
+
     if (now - blinkState.lastToggle >= blinkState.rate) {
         blinkState.lastToggle = now;
         blinkState.toggle = !blinkState.toggle;

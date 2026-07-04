@@ -14,8 +14,13 @@
 
 void setupGates();
 void returnGates();          // one-shot: begin gate return sequence
-void updateGates();          // call each tick in STAGING: drives return to completion
 void dropGate(Lane lane);    // idempotent: no-op if gate already down
+
+// Call each tick in STAGING: ends the return pulse once returnWaitMs elapses.
+// The main loop calls the zero-arg form (current time = millis()); the
+// time-injected form lets tests drive the sequence on a deterministic clock.
+void updateGates(unsigned long now);
+inline void updateGates() { updateGates(millis()); }
 bool isLaneUp(Lane lane);    // is this lane's gate currently held up?
 bool areLanesReady();        // return sequence complete and both gates up
 

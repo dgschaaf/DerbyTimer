@@ -55,9 +55,9 @@ void returnGates() {
 	gs.returnTime   = millis();
 }
 
-void updateGates() {
+void updateGates(unsigned long now) {
 	if (!gs.returnActive) return;
-	if (millis() - gs.returnTime >= returnWaitMs) {
+	if (now - gs.returnTime >= returnWaitMs) {
 		digitalWrite(pinGateReturn, LOW);
 		gs.returnActive = false;
 	}
