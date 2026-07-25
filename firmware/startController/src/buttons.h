@@ -6,6 +6,12 @@
  *
  * Left is D18, Right is D19, Start is A6, Mode is A7.
  *
+ * DEBOUNCE IS HARDWARE. All four inputs pass through Schmitt triggers on the
+ * PCB shield, so the levels this module reads are already clean. Nothing here
+ * debounces, and nothing here should start: the analog re-read interval below
+ * is a cost optimization (ADC reads are slow), not a settling filter, and the
+ * click detector keys off a single clean edge for the same reason.
+ *
  * Two ways to read a button, and the choice is a policy, not a preference:
  * the operator controls (Start, Mode) act on the RELEASE edge - a completed
  * click - while the lane triggers act on the PRESS, because reaction timing

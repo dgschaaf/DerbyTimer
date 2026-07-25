@@ -49,8 +49,6 @@ Two controllers wired over UART, all peripherals connected. No track yet.
 - [ ] STAGING -> IDLE via Mode button: lights off, gates stay returned
 - [ ] Buttons act on release: hold Start or Mode down and confirm nothing happens until it is let go
 - [ ] Held button does not carry over: hold Mode to abort STAGING, keep holding into IDLE -> race mode must NOT advance
-- [ ] COUNTDOWN abort via Mode: tree goes dark, gates drop, no red blink (operator action, not a fault)
-- [ ] COUNTDOWN stall watchdog: with the FC disconnected, a countdown that cannot reach GO aborts to IDLE within ~5 s and blinks red 3x
 - [ ] STAGING -> COUNTDOWN blocked until both gates confirm up (`areLanesReady()`)
 - [ ] COUNTDOWN: Y3 -> Y2 -> Y1 -> GO sequence fires at correct intervals (500/500/500 ms)
 - [ ] PRO mode: all three yellows light simultaneously on Y1 stage (400 ms single stage)
@@ -67,6 +65,8 @@ Two controllers wired over UART, all peripherals connected. No track yet.
 
 These verify the abort paths hold up on real hardware.
 
+- [ ] COUNTDOWN abort via Mode click: tree goes dark, gates drop, NO red blink (operator action, not a fault)
+- [ ] COUNTDOWN stall watchdog: with the FC disconnected, a countdown that cannot reach GO aborts to IDLE within ~5 s AND blinks red 3x
 - [ ] Unplug UART cable during COUNTDOWN -> FC 10 s timeout fires -> both controllers return to IDLE independently
 - [ ] Re-plug cable, run a normal heat -> system recovers cleanly with no stale state
 - [ ] Power-cycle SC mid-heat -> FC eventually times out or DNFs -> operator can restart
