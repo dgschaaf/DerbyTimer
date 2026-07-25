@@ -28,7 +28,7 @@ struct BlinkState {
     byte finalPattern;
 };
 
-// Shift register bit layout (Q0–Q7)
+// Shift register bit layout (Q0-Q7)
 #define LIGHT_OFF 0x00		// all zeros to the shift register
 #define LIGHT_BR   (1 << 0) // Q0: Blue R
 #define LIGHT_BL   (1 << 1) // Q1: Blue L

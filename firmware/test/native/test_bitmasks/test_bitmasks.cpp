@@ -13,7 +13,7 @@ void test_foul_left_or_right_equals_both() {
 }
 
 void test_foul_left_and_right_no_overlap() {
-    // foul_left and foul_right must occupy different bits — same byte, independent flags
+    // foul_left and foul_right must occupy different bits -- same byte, independent flags
     TEST_ASSERT_EQUAL(0, foul_left & foul_right);
 }
 

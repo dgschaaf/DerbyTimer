@@ -94,7 +94,7 @@ static void displayReactionTimes();
 
 
 // ==================== RACE_TEST SUPPORT ====================
-// Display sequence: all-segments (88.888), then countdown 05→01 at 500ms each
+// Display sequence: all-segments (88.888), then countdown 05->01 at 500ms each
 struct DispStep { uint32_t valUs; uint16_t holdMs; };
 static const DispStep kDispSteps[] = {
 	{ 88888000UL, 1000 },  // all segments lit: 88.888
@@ -122,7 +122,7 @@ void finishControllerSetup() {
 
 void finishControllerLoop() {
     /*
-     * Coordination model — each transition has one initiator (calls selfTransition,
+     * Coordination model -- each transition has one initiator (calls selfTransition,
      * sends MSG_RACE_STATE, waits for ACK) and one follower (receives via rxSerial,
      * calls rxTransition to commit locally without re-broadcasting).
      *
@@ -212,7 +212,7 @@ static void handleCountdown(){
 		countdownEntryMs     = millis();
 	}
 
-	// SC went silent — sensors never armed, heat is unrecoverable. Abort to IDLE.
+	// SC went silent -- sensors never armed, heat is unrecoverable. Abort to IDLE.
 	if ((millis() - countdownEntryMs) > 10000UL) {
 		DBG("[FC] countdown timeout->forceIdle");
 		stm.forceIdle();
@@ -276,7 +276,7 @@ static void handleComplete(){
 		computeHeatResults(heatResult, timingInputs);
 
 		// Warn if reaction times were expected but never received (lost serial TX).
-		// Car times will equal race times — incorrect but best-effort; result is still displayed.
+		// Car times will equal race times -- incorrect but best-effort; result is still displayed.
 		if (currentMode == MODE_REACTION || currentMode == MODE_PRO) {
 			bool leftNeedsReact  = !heatResult.left.foul  && !heatResult.left.dnf;
 			bool rightNeedsReact = !heatResult.right.foul && !heatResult.right.dnf;
@@ -343,7 +343,7 @@ static void handleRaceTest(){
 	}
 
 			switch (fct.phase) {
-				case 1: {  // Display test: 88.888 all-segments, then countdown 05→01
+				case 1: {  // Display test: 88.888 all-segments, then countdown 05->01
 					if (fct.subPhase == 0) {
 						updateDisplay(kDispSteps[0].valUs, LANE_LEFT);
 						updateDisplay(kDispSteps[0].valUs, LANE_RIGHT);
@@ -416,7 +416,7 @@ static void handleRaceTest(){
 					break;
 				}
 
-				case 4: {  // Result display — stays here permanently (power-cycle to exit)
+				case 4: {  // Result display -- stays here permanently (power-cycle to exit)
 					if (fct.failCount == 0) {
 						// All clear: 00.000 on both lanes
 						if (fct.subPhase == 0) {
@@ -427,7 +427,7 @@ static void handleRaceTest(){
 						break;
 					}
 
-					// Failure cycle: show each code (2s) → blank (1s) → 88.888 end marker (1s) → repeat
+					// Failure cycle: show each code (2s) -> blank (1s) -> 88.888 end marker (1s) -> repeat
 					if (fct.subPhase == 0) {
 						updateDisplay((uint32_t)fct.failCodes[0] * 1000UL, LANE_LEFT);
 						updateDisplay((uint32_t)fct.failCodes[0] * 1000UL, LANE_RIGHT);

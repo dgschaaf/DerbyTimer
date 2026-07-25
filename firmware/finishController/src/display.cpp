@@ -15,11 +15,11 @@ static constexpr uint8_t PIN_AD3 = 8;         // D8
 
 static constexpr uint8_t PIN_DECIMAL = 9;     // D9
 
-// Lane select → goes to 74HC238 EN inputs
+// Lane select -> goes to 74HC238 EN inputs
 static constexpr uint8_t PIN_LANE1 = A2;      // BCD_Lane1 (E2 on U1)
 static constexpr uint8_t PIN_LANE2 = A3;      // BCD_Lane2 (E2 on U2)
 
-// Digit index mapping (0–4 -> tens, ones, tenths, hundredths, thousandths)
+// Digit index mapping (0-4 -> tens, ones, tenths, hundredths, thousandths)
 static constexpr uint8_t NUM_DIGITS = DISPLAY_NUM_DIGITS;
 
 // -------------------------------------------
@@ -54,7 +54,7 @@ static void writeDigit(uint8_t idx, uint8_t val, bool showDecimal) {
     // Decimal point
     digitalWrite(PIN_DECIMAL, showDecimal ? HIGH : LOW);
 
-    // Digit index → A0/A1/A2
+    // Digit index -> A0/A1/A2
     digitalWrite(PIN_BCD_MUX_A, (idx & 0x01));
     digitalWrite(PIN_BCD_MUX_B, (idx & 0x02));
     digitalWrite(PIN_BCD_MUX_C, (idx & 0x04));
@@ -104,7 +104,7 @@ static void writeBlankDigit(uint8_t idx)
     digitalWrite(PIN_BCD_MUX_B, (idx & 0x02));
     digitalWrite(PIN_BCD_MUX_C, (idx & 0x04));
 
-    // BCD = 1111 → blank segment output on MC14543
+    // BCD = 1111 -> blank segment output on MC14543
     digitalWrite(PIN_AD0, HIGH);
     digitalWrite(PIN_AD1, HIGH);
     digitalWrite(PIN_AD2, HIGH);

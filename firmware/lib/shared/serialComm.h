@@ -39,7 +39,7 @@ enum txStatus : uint8_t {
 	TX_SENT,			// message sent, awaiting ACK
 	TX_ACKED,			// message acknowledged
 	TX_TIMEOUT,			// ACK not received within txTimeout
-	TX_NACKED,			// message improperly received — triggers retry
+	TX_NACKED,			// message improperly received -- triggers retry
 	TX_FAILED,			// permanently failed (too many NACKs)
 
 	TX_STATUS_COUNT		// keep as last to count the number of statuses
@@ -59,46 +59,85 @@ enum errCode : uint8_t {
 };
 
 // -------------------- Global RX State --------------------
-// Updated by rxSerial() each loop. Mode and State are stored as
-// uint8_t — callers cast to raceMode/raceState from raceTypes.h.
+// The single mailbox between the wire and both controllers: rxSerial() is the
+// only writer of record, controller code reads. Fields are grouped by
+// LIFECYCLE, because the groups are not interchangeable -- reading a
+// level-triggered value as though it were an event re-fires it forever, which
+// is the class of bug that has bitten this struct before. Check the banner
+// above a field before using it.
+//
+// Mode and State are stored as uint8_t -- callers cast to raceMode/raceState
+// from raceTypes.h. Nothing here goes on the wire and nothing initializes it
+// positionally, so grouping by lifecycle costs only alignment padding: the two
+// int32_t reaction times sit mid-struct because they belong to their group,
+// which is worth 8 bytes of padding on a 4-byte-aligned target (none on AVR).
 struct SerialRxState {
-	serialMsgID ID              = MSG_NULL;  // last received message ID
-	serialMsgID lastAckedMsgID  = MSG_NULL;  // last acknowledged message ID
-	serialMsgID lastNackedMsgID = MSG_NULL;  // last not acknowledged message ID
-	uint8_t     Mode            = 0;         // last received race mode (MODE_GATEDROP -- cast to raceMode)
-	uint8_t     State           = 0;         // last received race state (RACE_IDLE -- cast to raceState)
-	bool        StateChanged    = false;     // set when MSG_RACE_STATE arrives; consumed once by stateMachine::serviceRx().
-	                                         // rx.State alone is level-triggered (holds its value forever) -- feeding it
-	                                         // to rxTransition() directly re-fires stale transitions (e.g. RACING->IDLE
-	                                         // mid-heat from the previous heat's IDLE). Never bypass the flag.
-	errCode     lastErrorCode   = err_NULL;  // last received error code (MSG_ERROR from the peer -- FC treats any
-	                                         // value here as a critical abort signal, see ADR-0004)
-	errCode     lastLocalError  = err_NULL;  // last locally detected RX parse problem (unknown ID, stale partial,
-	                                         // out-of-range payload). Diagnostic only -- must never trigger aborts.
 
-	bool    RaceStart           = false;
-	bool    LeftFoul            = false;
-	bool    RightFoul           = false;
-	bool    LeftWin             = false;
-	bool    RightWin            = false;
-	bool    Tie                 = false;
-	bool    NoResult            = false;   // double-foul / no result (winner_noResult)
-	bool    WinnerReceived      = false;   // set when any MSG_WINNER lands, cleared at race start
-	bool    DisplayAdvanceFlag  = false;
-	bool    LeftReactionValid   = false;
-	bool    RightReactionValid  = false;
-	int32_t LeftReactionTime    = 0;
-	int32_t RightReactionTime   = 0;
+	// ---- LEVEL-TRIGGERED -- holds its last value forever; never an event ----
+	// Nothing ever clears these. They answer "what did the peer last say?",
+	// never "did something just happen?". To act once on a change, pair one
+	// with an edge flag (see StateChanged) or with a guard of your own.
+	serialMsgID ID              = MSG_NULL;  // set: rxSerial, on every message. Used within the same pass to address the ACK; no controller reads it.
+	uint8_t     Mode            = 0;         // set: rxSerial on MSG_RACE_MODE (cast to raceMode). The SC also assigns this locally to mirror its own
+	                                         // confirmed mode, so on the SC it is not purely "what the peer sent" -- a known wart, not a contract.
+	uint8_t     State           = 0;         // set: rxSerial on MSG_RACE_STATE (cast to raceState). Safe for "where is the peer"; NEVER to drive a
+	                                         // transition -- that is StateChanged's job.
+	serialMsgID lastAckedMsgID  = MSG_NULL;  // set: rxSerial on MSG_ACK, then used in the same pass to mark txState TX_ACKED. Diagnostic afterwards.
+	serialMsgID lastNackedMsgID = MSG_NULL;  // set: rxSerial on MSG_NACK; same single-pass use, marking TX_NACKED.
 
+	// ---- EDGE FLAG -- set by rxSerial, consumed exactly once ----
+	bool StateChanged = false;   // set: rxSerial on MSG_RACE_STATE. Cleared by: stateMachine::service() (via serviceRx), exactly once.
+	                             // rx.State alone is level-triggered (holds its value forever) -- feeding it to a transition
+	                             // directly re-fires stale transitions (e.g. RACING->IDLE mid-heat from the previous heat's
+	                             // IDLE). Never bypass the flag.
+
+	// ---- CONSUMER-CLEARED -- one named handler reads AND clears ----
+	// Safe to treat as events, but only from the designated consumer: whoever
+	// reads one owes it a clear in the same breath. clearHeatEvents() sweeps
+	// them again at IDLE entry as a backstop, not as the owner.
+	errCode lastErrorCode      = err_NULL;  // set: rxSerial on MSG_ERROR. Cleared by: FC main loop, which then forceIdles (abort signal, ADR-0004).
+	                                        // The SC deliberately does not consume it (ADR-0004 records the asymmetry), so on the SC it never clears.
+	bool    LeftReactionValid  = false;     // set: rxSerial on MSG_LEFT_REACT.  Cleared by: FC handleRxReaction, together with LeftReactionTime.
+	bool    RightReactionValid = false;     // set: rxSerial on MSG_RIGHT_REACT. Cleared by: FC handleRxReaction, together with RightReactionTime.
+	int32_t LeftReactionTime   = 0;         // payload for the flag above; meaningful only while LeftReactionValid is set.
+	int32_t RightReactionTime  = 0;         // payload for the flag above; meaningful only while RightReactionValid is set.
+	bool    LeftFoul           = false;     // set: rxSerial on MSG_FOUL -- ASSIGNED from the mask, both lanes at once, so a later MSG_FOUL overwrites
+	                                        // both. Cleared by: FC handleRxReaction, which latches the foul into timingInputs.
+	bool    RightFoul          = false;     // set and cleared exactly as LeftFoul.
+	bool    DisplayAdvanceFlag = false;     // set: rxSerial on MSG_DISP_ADVANCE. Cleared by: FC handleComplete, on every pass that observes it.
+
+	// ---- HEAT-CLEARED -- lives one heat; only clearHeatEvents() clears it ----
+	// These stay set after their consumer reads them, on purpose: a heat's
+	// outcome must remain readable for the rest of that heat. Consumers are
+	// therefore responsible for not re-acting (see the FC's startUs == 0 guard).
+	bool RaceStart      = false;   // set: rxSerial on MSG_RACE_START. Read: FC starts heat timing once, guarded.
+	bool LeftWin        = false;   // set: rxSerial on MSG_WINNER (winner_leftWin).  Read: SC win-light pattern.
+	bool RightWin       = false;   // set: rxSerial on MSG_WINNER (winner_rightWin). Read: SC win-light pattern.
+	bool Tie            = false;   // set: rxSerial on MSG_WINNER (winner_tie).      Read: SC win-light pattern.
+	bool NoResult       = false;   // set: rxSerial on MSG_WINNER (winner_noResult). Double-foul: SC shows no win lights.
+	bool WinnerReceived = false;   // set: rxSerial on ANY MSG_WINNER. The SC's "results are in" gate.
+
+	// ---- DIAGNOSTIC -- never triggers behavior ----
+	errCode lastLocalError = err_NULL;  // set: rxSerial on a locally detected parse problem (unknown ID, stale partial,
+	                                    // out-of-range payload). Never cleared and never read by controller logic.
+	                                    // Must never trigger an abort -- that is lastErrorCode's job.
+
+	// Owns the HEAT-CLEARED group outright, and re-clears the CONSUMER-CLEARED
+	// group as a backstop for a handler that never ran. Deliberately leaves the
+	// LEVEL-TRIGGERED fields alone (peer status, not heat data), along with
+	// StateChanged (owned by the state machine) and lastLocalError.
+	// Called at IDLE entry on both controllers.
 	void clearHeatEvents() {
+		// HEAT-CLEARED: this is the only place these are reset.
 		RaceStart          = false;
-		LeftFoul           = false;
-		RightFoul          = false;
 		LeftWin            = false;
 		RightWin           = false;
 		Tie                = false;
 		NoResult           = false;
 		WinnerReceived     = false;
+		// CONSUMER-CLEARED: backstop only -- the named handler clears these first.
+		LeftFoul           = false;
+		RightFoul          = false;
 		DisplayAdvanceFlag = false;
 		LeftReactionValid  = false;
 		RightReactionValid = false;

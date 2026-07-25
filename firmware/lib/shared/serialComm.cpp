@@ -250,7 +250,7 @@ static void txDrive() {
 }
 
 // ---------------------------------------------------------------
-// TX public API — enqueue and return bool
+// TX public API -- enqueue and return bool
 // ---------------------------------------------------------------
 
 bool txRaceMode(uint8_t newMode) {
@@ -262,7 +262,7 @@ bool txRaceState(uint8_t newState) {
 }
 
 bool txRaceStart() {
-	return enqueueMsg(MSG_RACE_START, nullptr, 0, true);   // priority — jumps queue
+	return enqueueMsg(MSG_RACE_START, nullptr, 0, true);   // priority -- jumps queue
 }
 
 bool txReactionTime(uint32_t reactionTime, Lane lane) {
@@ -323,7 +323,7 @@ void txService() {
 }
 
 // ---------------------------------------------------------------
-// Immediate responses — fire and forget, never queued
+// Immediate responses -- fire and forget, never queued
 // ---------------------------------------------------------------
 
 void txAck(uint8_t ackID) {

@@ -32,8 +32,8 @@ struct stateMachine {
 
 	bool allowedTransition(raceState next) {
 		// Allowed transitions table (FROM x TO)
-		// →IDLE column: STAGING→IDLE is the normal operator-abort path;
-		// COUNTDOWN→IDLE and RACING→IDLE are emergency abort paths.
+		// ->IDLE column: STAGING->IDLE is the normal operator-abort path;
+		// COUNTDOWN->IDLE and RACING->IDLE are emergency abort paths.
 		static constexpr bool allowed[6][6] = {
 		/* FROM\TO:  IDLE STAG CNTD RACE CMPL TEST */
 		/*IDLE*/     {0,   1,   0,   0,   0,   1},

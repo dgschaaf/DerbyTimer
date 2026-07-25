@@ -29,8 +29,8 @@ enum raceMode : uint8_t {
 	MODE_GATEDROP,
 	MODE_REACTION,
 	MODE_PRO,
-	MODE_DIALIIN,  // Set only via BLE from Race Manager — not reachable through the mode button
-	MODE_COUNT     // sentinel — used for bounds checking only, not a valid mode
+	MODE_DIALIIN,  // Set only via BLE from Race Manager -- not reachable through the mode button
+	MODE_COUNT     // sentinel -- used for bounds checking only, not a valid mode
 };
 
 enum Lane : uint8_t {

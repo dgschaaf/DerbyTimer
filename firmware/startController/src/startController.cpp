@@ -204,7 +204,7 @@ static void handleDisplayAdvance();
 static void queueHeatMsg(serialMsgID id);
 
 // ==================== RACE_TEST SUPPORT ====================
-// Light chase sequence: L→R sweep, R→L sweep, 3× all-on/all-off
+// Light chase sequence: L->R sweep, R->L sweep, 3x all-on/all-off
 struct LightStep { byte pattern; uint16_t ms; };
 static const LightStep kLightSteps[] = {
 	{ LIGHT_BL, 150 }, { LIGHT_BR, 150 }, { LIGHT_Y1, 150 }, { LIGHT_Y2, 150 },
@@ -248,7 +248,7 @@ void startControllerSetup(){
 
 void startControllerLoop(){
     /*
-     * Coordination model — each transition has one initiator (calls selfTransition,
+     * Coordination model -- each transition has one initiator (calls selfTransition,
      * sends MSG_RACE_STATE, waits for ACK) and one follower (receives via rxSerial,
      * calls rxTransition to commit locally without re-broadcasting).
      *
@@ -304,7 +304,7 @@ static void handleIdle(){
 
 		// Sync check: after a normal race, FC drives COMPLETE->IDLE and SC receives
 		// MSG_RACE_STATE(IDLE), setting rx.State = RACE_IDLE. If rx.State is anything
-		// else here, FC did not complete its IDLE transition — warn the operator.
+		// else here, FC did not complete its IDLE transition -- warn the operator.
 		if ((raceState)rx.State != RACE_IDLE) {
 			startBlink(LIGHT_FL | LIGHT_FR, 0x00, 3, 250, LIGHT_OFF);	// 3 red blinks, then off
 		}
@@ -635,7 +635,7 @@ static void handleRaceTest(){
 			break;
 		}
 
-		case 4: {  // Result display — stays here permanently (power-cycle to exit)
+		case 4: {  // Result display -- stays here permanently (power-cycle to exit)
 			updateBlink();
 			if (rt.failCount == 0) {
 				// All pass: GO blinks 5x then stays on

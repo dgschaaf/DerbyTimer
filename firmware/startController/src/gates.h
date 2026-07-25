@@ -5,7 +5,7 @@
 #include "raceTypes.h"
 
 /**
- * Gates module — controls the left/right electromagnet gates and return solenoid.
+ * Gates module -- controls the left/right electromagnet gates and return solenoid.
  *
  * Left gate D4, right gate D7, return solenoid D6.
  * Energizing an electromagnet holds the gate up; de-energizing lets the spring drop it.
