@@ -37,15 +37,41 @@ struct raceTimingData {
 // current time into tick() -- the firmware passes millis(), tests pass a
 // scripted clock -- so the sequence is a pure function of its inputs.
 // handleCountdown() watches changed() to fire light updates and the GO
-// actions exactly once. Reset to CD_IDLE at IDLE entry, to CD_STAGED at
-// COUNTDOWN entry. Exposed here so test_countdown can drive the sequence.
+// actions exactly once. Reset to CD_IDLE at IDLE entry, armed at COUNTDOWN
+// entry. Exposed here so test_countdown can drive the sequence.
+//
+// The struct also owns the stall watchdog: it knows the legal stage durations,
+// and because the caller already passes the clock in, the watchdog is testable
+// on the desktop.
 struct CountDownCtx {
-	countdownState state  = CD_IDLE;
-	countdownState prev   = CD_IDLE;
-	unsigned long  timer  = 0;
-	unsigned long  delay  = 0;
+	// Longest legal countdown is 1500 ms -- CD_STAGED advances immediately,
+	// then three 500 ms stages; PRO reaches GO in 400 ms. A tree still short of
+	// GO well past that is not going to arrive. The bound is deliberately
+	// generous, and half the FC's 10 s countdown timeout, so the SC (which
+	// owns COUNTDOWN transitions) aborts first and the FC follows the state
+	// message rather than both controllers timing out independently.
+	static const unsigned long stallTimeoutMs = 5000;
+
+	countdownState state     = CD_IDLE;
+	countdownState prev      = CD_IDLE;
+	unsigned long  timer     = 0;
+	unsigned long  delay     = 0;
+	unsigned long  startedAt = 0;   // when this countdown was armed; stall reference
 
 	bool changed() const { return state != prev; }
+
+	// Begin a countdown and start the stall clock.
+	void arm(unsigned long now) {
+		state     = CD_STAGED;
+		startedAt = now;
+	}
+
+	// True once the tree has failed to reach GO within its legal budget.
+	// A finished (CD_GO) or unarmed (CD_IDLE) countdown can never be stalled.
+	bool stalled(unsigned long now) const {
+		if (state == CD_IDLE || state == CD_GO) return false;
+		return (now - startedAt) > stallTimeoutMs;
+	}
 
 	void tick(raceMode mode, unsigned long now) {
 		prev = state;

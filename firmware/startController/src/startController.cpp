@@ -182,9 +182,11 @@ static CountDownCtx cd;
 static bool          winLightsPend  = false;   // true until winner data received or timed out
 static unsigned long winLightTimer  = 0;        // millis() timestamp when RACE_COMPLETE was entered
 
-// button management
-static bool startReleased				= true;
-static bool modeReleased				= true;
+// Set when the countdown watchdog aborts a stalled heat, consumed at IDLE
+// entry. A malfunction should not look like a button press, so this is the
+// one abort that gets the red blink; an operator abort stays silent.
+static bool countdownFault = false;
+
 static RaceTestCtx rt;
 
 // State handlers (file-local) -- one per race state, dispatched from startControllerLoop()
@@ -262,6 +264,10 @@ void startControllerLoop(){
      */
 	rxSerial();
 
+	// Sample the operator buttons once per pass, before any handler asks
+	// whether a click happened.
+	updateButtons();
+
 	switch(stm.current) {
 		case RACE_IDLE:      handleIdle();      break;
 		case RACE_STAGING:   handleStaging();   break;
@@ -299,13 +305,15 @@ static void handleIdle(){
 		updateLights(LIGHT_OFF);
 		dropGate(LANE_LEFT);
 		dropGate(LANE_RIGHT);
-		modeReleased	= true;
-		startReleased	= true;
 
-		// Sync check: after a normal race, FC drives COMPLETE->IDLE and SC receives
-		// MSG_RACE_STATE(IDLE), setting rx.State = RACE_IDLE. If rx.State is anything
-		// else here, FC did not complete its IDLE transition -- warn the operator.
-		if ((raceState)rx.State != RACE_IDLE) {
+		// Two reasons to warn the operator on arrival, both meaning "this heat
+		// did not end the way it should have":
+		//  - Sync check: after a normal race, FC drives COMPLETE->IDLE and SC
+		//    receives MSG_RACE_STATE(IDLE), setting rx.State = RACE_IDLE. Any
+		//    other value means the FC did not complete its IDLE transition.
+		//  - The countdown watchdog aborted a stalled tree.
+		if (countdownFault || (raceState)rx.State != RACE_IDLE) {
+			countdownFault = false;
 			startBlink(LIGHT_FL | LIGHT_FR, 0x00, 3, 250, LIGHT_OFF);	// 3 red blinks, then off
 		}
 	}
@@ -314,21 +322,19 @@ static void handleIdle(){
 	handleModeChanges();
 
 	if (!isBlinking()){
-		if (isStartPressed())	stm.request(RACE_STAGING);		// Start moves to STAGING
+		if (startClicked())	stm.request(RACE_STAGING);		// Start moves to STAGING
 	}
 
 	stm.service();
 }
 
  static void handleModeChanges(){
- 	// Handle mode changes via button press or rxSerial.
+ 	// Handle mode changes via button click or rxSerial.
 	// Mode changes preempt any in-progress blink -- startBlink() in selfTransition/rxTransition overwrites.
 	// Unsolicited peer changes (rx.Mode) take precedence over the button;
 	// md.service() consumes them.
 	if ((raceMode)rx.Mode == md.current){
-		if (!isModePressed())		modeReleased	= true;		// button released, ready for next detection
-		if (isModePressed() && modeReleased){
-			modeReleased			= false;					// don't revisit until released
+		if (modeClicked()){
 			md.request(md.nextMode());							// advance to the next operator-selectable mode
 		}
 	}
@@ -353,8 +359,8 @@ static void handleStaging(){
 	updateGates();
 
 	if (!isBlinking()){
-		if (isStartPressed() && areLanesReady())	stm.request(RACE_COUNTDOWN);	// Start moves to COUNTDOWN
-		if (isModePressed())	stm.request(RACE_IDLE);			// Mode returns to IDLE
+		if (startClicked() && areLanesReady())	stm.request(RACE_COUNTDOWN);	// Start moves to COUNTDOWN
+		if (modeClicked())	stm.request(RACE_IDLE);			// Mode returns to IDLE
 	}
 
 	stm.service();			// also follows FC-initiated abort to IDLE
@@ -366,17 +372,40 @@ static void handleStaging(){
 // COUNTDOWN: runs the tree via cd.tick(), records early starts as fouls,
 // and at GO captures the race-start timestamp, queues MSG_RACE_START, and
 // initiates ->RACING. Follows FC aborts.
+//
+// Two local escapes exist because the FC's rescue (its own 10 s watchdog) can
+// only arrive over a working link: a stall watchdog, and a Mode click. Both
+// use forceIdle() rather than request() -- request() waits on an ACK
+// round-trip, which is exactly what a dead link cannot provide.
 static void handleCountdown(){
 	if (stm.takeEntry()) {
 		DBG("[SC] ->COUNTDOWN");
-		cd.state  = CD_STAGED;
+		cd.arm(millis());
 	}
 
 	tNow = micros();
+	unsigned long nowMs = millis();
+
+	// Operator escape: abort a heat that should not run (driver not ready is
+	// handled by letting the heat play out, so this is for malfunctions).
+	if (modeClicked()) {
+		DBG("[SC] countdown abort: MODE");
+		stm.forceIdle();
+		return;
+	}
+
+	// The tree stopped advancing. No GO is coming, and with the link down
+	// nothing external will rescue us.
+	if (cd.stalled(nowMs)) {
+		DBG("[SC] countdown stalled->forceIdle");
+		countdownFault = true;
+		stm.forceIdle();
+		return;
+	}
 
 	handleEarlyStarts(tNow, md.current);
 
-	cd.tick(md.current, millis());
+	cd.tick(md.current, nowMs);
 
 	if (cd.state == CD_GO && cd.changed()) {
 		handleCountdownGoActions(tNow);
@@ -498,11 +527,7 @@ static void handleComplete(){
 }
 
 static void handleDisplayAdvance(){
-	if (isStartPressed() && startReleased){
-		startReleased		= false;
-		queueHeatMsg(MSG_DISP_ADVANCE);
-	}
-	if (!isStartPressed()) startReleased = true;
+	if (startClicked()) queueHeatMsg(MSG_DISP_ADVANCE);
 }
 
  /* =========================================================================

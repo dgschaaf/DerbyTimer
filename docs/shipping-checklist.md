@@ -47,6 +47,10 @@ Two controllers wired over UART, all peripherals connected. No track yet.
 
 - [ ] IDLE -> STAGING: blue lights on SC, gates return, displays clear
 - [ ] STAGING -> IDLE via Mode button: lights off, gates stay returned
+- [ ] Buttons act on release: hold Start or Mode down and confirm nothing happens until it is let go
+- [ ] Held button does not carry over: hold Mode to abort STAGING, keep holding into IDLE -> race mode must NOT advance
+- [ ] COUNTDOWN abort via Mode: tree goes dark, gates drop, no red blink (operator action, not a fault)
+- [ ] COUNTDOWN stall watchdog: with the FC disconnected, a countdown that cannot reach GO aborts to IDLE within ~5 s and blinks red 3x
 - [ ] STAGING -> COUNTDOWN blocked until both gates confirm up (`areLanesReady()`)
 - [ ] COUNTDOWN: Y3 -> Y2 -> Y1 -> GO sequence fires at correct intervals (500/500/500 ms)
 - [ ] PRO mode: all three yellows light simultaneously on Y1 stage (400 ms single stage)
@@ -105,7 +109,7 @@ Run at least one complete heat in each mode, end to end.
 
 These are documented decisions, not forgotten items:
 
-- **No software COUNTDOWN abort** -- Mode button is not checked during countdown. Recovery is to let the heat DNF naturally. Power cycle recovers a truly hung countdown (not yet observed).
+- **Stuck-closed button reads as a dead control** -- Start and Mode act on the release edge, so a button held closed by a mechanical fault produces no action at all rather than a stuck-on one. The self-test button check is the mitigation; run it if a control seems unresponsive.
 - **No Race Manager** -- Win/loss is read from the FC display and lights. Bracket tracking is manual.
 - **No RFID** -- Car identification is visual. Lane assignment is by physical position.
 - **Display resolution is 1 ms** -- Sub-millisecond timing differences are rounded. This is typical for pinewood derby.

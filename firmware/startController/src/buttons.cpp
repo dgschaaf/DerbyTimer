@@ -10,11 +10,27 @@ static const byte buttonMode 	= A7;				// Analog pin, Arduino sees A7 as 21
 static constexpr unsigned long analogPollIntervalMs = 10;   // re-read the analog buttons at ~100 Hz
 static constexpr int           analogThreshold      = 512;  // ADC midpoint; a read above this counts as pressed
 
+// Click state for the two operator buttons. Refreshed once per loop pass by
+// updateButtons(); the flags describe that pass only.
+static ClickDetector startClick;
+static ClickDetector modeClick;
+static bool startClickNow = false;
+static bool modeClickNow  = false;
+
 void setupButtons() {
     pinMode(buttonLeft, INPUT);				// External pull-up
     pinMode(buttonRight, INPUT);			// External pull-up
 	// A6, A7 are analog-only, no pinMode needed
 }
+
+// Call once at the top of the loop, before any handler reads a click.
+void updateButtons() {
+	startClickNow = startClick.update(isStartPressed());
+	modeClickNow  = modeClick.update(isModePressed());
+}
+
+bool startClicked() { return startClickNow; }
+bool modeClicked()  { return modeClickNow; }
 
 bool isLeftPressed() {
 	// Ideally make this using interrupts, however that requires PCB change to pin 2
