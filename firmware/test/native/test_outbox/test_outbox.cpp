@@ -16,7 +16,7 @@ static const OutboxEntry testEntries[] = {
     { MSG_LEFT_REACT, OutboxPolicy::TOLERATED,  err_NULL },
     { MSG_WINNER,     OutboxPolicy::RETRY_ONCE, err_NULL },
 };
-static Outbox ob = { testEntries, 4 };
+static Outbox ob = { testEntries, 4, 0, 0 };
 
 // Reset all engine state between tests (same pattern as test_serialcomm.cpp).
 static void resetComm() {

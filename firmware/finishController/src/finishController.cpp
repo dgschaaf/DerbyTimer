@@ -32,7 +32,7 @@
 static const OutboxEntry kOutboxTable[] = {
 	{ MSG_WINNER, OutboxPolicy::RETRY_ONCE, err_NULL },
 };
-static Outbox outbox = { kOutboxTable, sizeof(kOutboxTable) / sizeof(kOutboxTable[0]) };
+static Outbox outbox = { kOutboxTable, sizeof(kOutboxTable) / sizeof(kOutboxTable[0]), 0, 0 };
 
 // Workbook for the FC's L4 RACE_TEST self-test (display segment test,
 // sensor beam-break check, SC comm check). Owned by handleRaceTest();

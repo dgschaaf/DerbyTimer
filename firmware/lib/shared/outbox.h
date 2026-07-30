@@ -20,7 +20,13 @@
 // Usage:
 //   static const OutboxEntry table[] = { { MSG_FOUL, OutboxPolicy::FATAL,
 //                                          err_STATE_TX_TIMEOUT }, ... };
-//   static Outbox outbox = { table, entryCount };   // masks start cleared
+//   static Outbox outbox = { table, entryCount, 0, 0 };   // masks start cleared
+//
+//   The two mask zeros are redundant to the compiler -- omitted aggregate
+//   members are value-initialized -- but they are written out anyway so the
+//   declaration states its own intent, and so the build stays clean under
+//   -Wmissing-field-initializers, which cannot tell "deliberately defaulted"
+//   from "forgot two fields".
 //
 //   The controller's queue wrapper builds the payload, calls the tx*()
 //   function, and calls track(id) only if the tx*() returned true (payload

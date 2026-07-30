@@ -164,7 +164,7 @@ static const OutboxEntry kOutboxTable[] = {
 	{ MSG_RIGHT_REACT,  OutboxPolicy::TOLERATED, err_NULL },
 	{ MSG_DISP_ADVANCE, OutboxPolicy::TOLERATED, err_NULL },
 };
-static Outbox outbox = { kOutboxTable, sizeof(kOutboxTable) / sizeof(kOutboxTable[0]) };
+static Outbox outbox = { kOutboxTable, sizeof(kOutboxTable) / sizeof(kOutboxTable[0]), 0, 0 };
 
 // State & mode machine instances
 static stateMachine stm					= {RACE_IDLE, RACE_IDLE, true, false};
