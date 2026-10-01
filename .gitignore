@@ -34,3 +34,5 @@ sym-lib-table-bak
 fp-lib-table-bak
 *.net
 *.xml
+_autosave-*
+fp-info-cache
