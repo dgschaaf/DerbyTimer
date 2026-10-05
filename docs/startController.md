@@ -22,7 +22,7 @@ The Start Controller manages the beginning of pinewood derby races, controlling 
 
 #### User Interface
 
-* **Four Button Inputs**: Start (A6), Mode (A7), Left Lane (D18), Right Lane (D19) -- all hardware-debounced via Schmitt triggers on the PCB shield; no software debounce required
+* **Four Button Inputs**: Start (A7), Mode (A6), Left Lane (D18), Right Lane (D19) -- all hardware-debounced via Schmitt triggers on the PCB shield; no software debounce required
 * **Visual Feedback**: LED patterns indicate mode, state, and race status
 * **Foul Detection**: Red light indication for false starts in reaction modes
 
@@ -132,22 +132,22 @@ Pending messages (foul status, left reaction, right reaction) are sent one at a 
 * Arduino Nano (ATmega328P)
 * Custom PCB shield (see KiCad schematics in hardware/startBoard/)
 * External 5V regulator for electromagnets and logic
-* 74HC595 shift register for lights (D2 data, D3 clock, D5 latch)
-* Gate pins: D4 (left electromagnet), D7 (right electromagnet), D6 (return solenoid)
+* 74HC595 shift register for lights (D2 data, D4 clock, D3 latch)
+* Gate pins: A1 (left electromagnet), A0 (right electromagnet), A2 (return solenoid)
 
 #### Pin Assignments
 | Function | Pin |
 |----------|-----|
-| Start button | A6 (analog, active <=512) |
-| Mode button | A7 (analog, active <=512) |
+| Start button | A7 (analog, pressed reads below 512) |
+| Mode button | A6 (analog, pressed reads below 512) |
 | Left Lane button | D18 (digital, active LOW, external pull-up) |
 | Right Lane button | D19 (digital, active LOW, external pull-up) |
 | Lights shift-register data | D2 |
-| Lights shift-register clock | D3 |
-| Lights shift-register latch | D5 |
-| Left gate electromagnet | D4 |
-| Right gate electromagnet | D7 |
-| Return solenoid | D6 |
+| Lights shift-register clock | D4 |
+| Lights shift-register latch | D3 |
+| Left gate electromagnet | A1 (D15) |
+| Right gate electromagnet | A0 (D14) |
+| Return solenoid | A2 (D16) |
 
 #### Power Considerations
 * 12V supply for electromagnets

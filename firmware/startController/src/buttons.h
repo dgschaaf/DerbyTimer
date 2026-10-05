@@ -4,7 +4,7 @@
 /**
  * @brief Operator buttons and lane triggers for the Start Controller.
  *
- * Left is D18, Right is D19, Start is A6, Mode is A7.
+ * Left is D18, Right is D19, Start is A7, Mode is A6.
  *
  * DEBOUNCE IS HARDWARE. All four inputs pass through Schmitt triggers on the
  * PCB shield, so the levels this module reads are already clean. Nothing here

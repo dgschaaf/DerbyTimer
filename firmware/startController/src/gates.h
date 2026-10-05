@@ -7,7 +7,7 @@
 /**
  * Gates module -- controls the left/right electromagnet gates and return solenoid.
  *
- * Left gate D4, right gate D7, return solenoid D6.
+ * Left gate A1 (D15), right gate A0 (D14), return solenoid A2 (D16).
  * Energizing an electromagnet holds the gate up; de-energizing lets the spring drop it.
  * The solenoid briefly pushes both gates up into the magnets during the return sequence.
  */

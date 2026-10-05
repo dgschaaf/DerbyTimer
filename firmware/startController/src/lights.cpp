@@ -3,8 +3,8 @@
 
 // Shift register pins
 static const byte dataPin 		= 2;
-static const byte clockPin 		= 3;
-static const byte latchPin 		= 5;
+static const byte clockPin 		= 4;
+static const byte latchPin 		= 3;
 
 // Placeholder toggle rate in the initializer; startBlink() overwrites it with
 // the caller's requested rate before any animation runs.

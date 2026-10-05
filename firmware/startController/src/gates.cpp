@@ -1,9 +1,9 @@
 #include "gates.h"
 #include <Arduino.h>
 
-static const byte pinGateL        	= 4;
-static const byte pinGateR        	= 7;
-static const byte pinGateReturn   	= 6;
+static const byte pinGateL        	= 15;	// A1
+static const byte pinGateR        	= 14;	// A0
+static const byte pinGateReturn   	= 16;	// A2
 static const uint16_t returnWaitMs	= 500;
 
 struct GateState {

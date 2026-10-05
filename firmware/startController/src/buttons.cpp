@@ -1,14 +1,15 @@
 #include "buttons.h"
 #include <Arduino.h>
 
-// Button pin definitions
+// Button pin definitions. All four inputs idle HIGH (pull-up on the shield)
+// and a press connects the input to GND, so pressed reads LOW.
 static const byte buttonLeft 	= 18;  				// Digital pin
 static const byte buttonRight 	= 19;  				// Digital pin
-static const byte buttonStart 	= A6;  				// Analog pin, Arduino sees A6 as 20
-static const byte buttonMode 	= A7;				// Analog pin, Arduino sees A7 as 21
+static const byte buttonStart 	= A7;  				// Analog-only pin
+static const byte buttonMode 	= A6;				// Analog-only pin
 
 static constexpr unsigned long analogPollIntervalMs = 10;   // re-read the analog buttons at ~100 Hz
-static constexpr int           analogThreshold      = 512;  // ADC midpoint; a read above this counts as pressed
+static constexpr int           analogThreshold      = 512;  // ADC midpoint; a read below this counts as pressed
 
 // Click state for the two operator buttons. Refreshed once per loop pass by
 // updateButtons(); the flags describe that pass only.
@@ -34,11 +35,11 @@ bool modeClicked()  { return modeClickNow; }
 
 bool isLeftPressed() {
 	// Ideally make this using interrupts, however that requires PCB change to pin 2
-	return digitalRead(buttonLeft) == HIGH;	
+	return digitalRead(buttonLeft) == LOW;	
 }
 bool isRightPressed() {
 	// Ideally make this using interrupts, however that requires PCB change to pin 3
-	return digitalRead(buttonRight) == HIGH;
+	return digitalRead(buttonRight) == LOW;
 }
 
 bool isStartPressed() {
@@ -47,7 +48,7 @@ bool isStartPressed() {
     static bool startState = false;
     
     if (millis() - startLastRead >= analogPollIntervalMs) {
-        startState = analogRead(buttonStart) > analogThreshold;
+        startState = analogRead(buttonStart) < analogThreshold;
         startLastRead = millis();
     }
     return startState;
@@ -59,7 +60,7 @@ bool isModePressed() {
     static bool modeState = false;
     
     if (millis() - modeLastRead >= analogPollIntervalMs) {
-        modeState = analogRead(buttonMode) > analogThreshold;
+        modeState = analogRead(buttonMode) < analogThreshold;
         modeLastRead = millis();
     }
     return modeState;
