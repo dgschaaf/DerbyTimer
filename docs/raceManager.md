@@ -556,8 +556,8 @@ Development is mock-first: milestones M0-M7 run entirely on a development PC aga
 ### M0 -- Contract and Scaffold
 
 - [ ] Freeze GATT contract v1 on paper (UUIDs, characteristic table, payload structs) -- the shared reference for mock, app, and firmware
-- [ ] Python project scaffold in `software/raceManager/` with pytest wired
-- [ ] Retire the two pre-design stub scripts in `software/raceManager/src/`
+- [x] Python project scaffold in `software/raceManager/` with pytest wired
+- [x] Retire the two pre-design stub scripts in `software/raceManager/src/`
 
 ### M1 -- Mock Finish Controller and Event Log
 
