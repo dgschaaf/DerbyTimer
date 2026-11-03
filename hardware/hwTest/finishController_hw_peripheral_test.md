@@ -1,296 +1,105 @@
 # Finish Controller Hardware Peripheral Test
 
-## 1. Objective
+Bench procedure; the KiCad schematic (`hardware/finishBoard/`) is authoritative for nets, and `docs/diagrams/finishBoardWiring.dio` is authoritative for enclosure wiring and connector names.
 
-The objective of this test is to perform basic checkout of the Finish Controller PCB before software/firmware integration. This test checks all external connectors, all voltage regulators, and sensor input signal conditioning circuits.
+## 1. Purpose
 
----
+Find two kinds of fault before the Nano is installed: PCB design or trace errors, and wiring or solder errors in the enclosure harness. The test checks the power wiring, the three supply rails, the UART idle levels, and both sensor input circuits. Display segments are not tested here. With no Nano, the display driver inputs float, so the display check is in `finishController_hw_functional_test.md`.
 
-## 2. Background
+## 2. Configuration
 
-The Finish Controller board is part of the derby timer system and is designed to be a custom Arduino shield at the finish end of the race track.  Its major functions are:
+- Board mounted in the enclosure. **No Nano 33 BLE in the socket.**
+- Nothing plugged into X2 to X6 (no Start Board cable, no sensors, no displays).
+- The bench supply connects only to the power cable that enters through the X1 cable gland.
+- **Ground reference:** for every voltage reading, put the black meter probe on the bench supply negative (-) terminal.
+- **Safety:** the power cable is cut from an AC extension cord. Make sure that no mains plug or receptacle remains on either end.
 
-- Accept & amplify optical sensor inputs from two independent World Beam QS-18 series optical sensors (Lane 1 and Lane 2)
-- Provide time-display output signals that drive two 5-digit 7-segment LED digit displays with multiplexed selection
-- Accept and condition +12V external power to +5V, and +3.3V power rails
-- Communicate with the Start Controller via logic-level-shifted UART serial communication
-- Communicate with the Race Manager controller via BLE interface (future firmware integration)
+## 3. Equipment
 
-This peripheral test validates basic board functionality at the component level before microprocessor integration.
+- Digital multimeter (DC volts, resistance, continuity beep)
+- 12 V bench supply with current limit
+- One jumper wire with small probe clips
+- Optional: two QS18 optical sensors with cables, for step 18
 
----
+## 4. Probe Points
 
-## 3. Equipment Required
+### External connectors
 
-- Digital multimeter with DC voltage measurement capability
-- External 12VDC regulated power supply
-- Pair of optical sensors (World Beam QS-18 series) for stimulation testing
-- Jumper wires (22 AWG) for temporary connections
-- Schematic printouts (optional, for reference during testing)
-
----
-
-## 4. Setup and Configuration
-
-### 4.1 Pre-Test Visual Inspection
-
-1. Confirm PCB is fully mounted in its housing and all solder joints are clean and complete
-2. Confirm PCB to enclosure connectors are properly seated and have continuity to enclosure connectors
-
-### 4.2 Power Supply Configuration
-
-1. Set  12V power supply to **12.0V**
-2. Enable current limiting feature on supply (if available)
-3. Confirm channel output is **OFF** until directed in test procedure
-
-### 4.3 Peripheral Connection
-
-Connect all external peripherals to the Finish Controller board as follows:
-
-1. **Power Supply**: Connect external 12V power supply to connector **J3** (2-pin power input)
-   - Pin 1: +12V
-   - Pin 2: GND
-2. **SENSOR INPUT**: Connect to connector **J1** (3-pin sensor input)
-   - Pin 1: +12V reference (internal supply to sensors)
-   - Pin 2: Lane 1 digital output (to be stimulated with optical sensor)
-   - Pin 3: Lane 2 digital output (to be stimulated with optical sensor)
-   - Pin 4: GND reference
-3. **DISPLAY POWER**: Connect to connector **J6** (4-pin display power)
-   - Pin 1: +12V (for LED display back-light, if present)
-   - Pin 2: GND
-   - Pin 3: GND (additional ground for display)
-   - Pin 4: +5V (for display segment driver logic)
-
----
-
-## 5. Test Procedure
-
-### 5.1 Power Supply Verification Test
-
-**Objective**: Verify all voltage regulators produce output within specification.
-**Test Steps**:
-
-1. **SAFETY CHECKPOINT**: Before applying power, confirm
-   - All connectors are properly seated
-   - No visible solder bridges or defects
-2. Turn **ON** 12V power supply output.  Immediately check and observe for:
-   - Unusual noises or smells
-   - Evidence of arcing or overheating
-   - Discoloration or odor
-3. Place multimeter ground probe on J8 Pin 14 (GND reference)
-4. Measure voltage on +12V rail:
-   - Verify +12V LED indication is illuminated (D17)
-   - Place test probe on J8 pin 15
-   - Expected reading: **12.0V**, actual: _______ V
-5. Measure voltage on +5V rail:
-   - Verify +5V LED indication is illuminated (D16)
-   - Place test probe on J6 pin 4
-   - Expected reading: **5.0V**, actual: _______ V
-6. Measure voltage on +3.3V rail:
-   - Verify +3.3V LED indication is illuminated (D15)
-   - Place test probe on via near C6 pin 1 (3.3V output test point)
-   - Expected reading: **3.3V**, actual: _______ V
-7. If voltages are outside tolerance, STOP testing and investigate voltage regulator circuits
-
-**Pass Criteria**: All three voltage measurements within specified tolerances
-
----
-
-### 5.2 Sensor Input Test
-
-**Objective**: Verify sensor input signal conditioning circuits (Schmitt triggers) are functional.
-
-**Test Lane 1 Sensor Input**:
-
-1. Place multimeter ground probe on J8 Pin 14 (GND reference)
-2. Place multimeter test probe on **J8 Pin 5** (Lane 1 sensor input signal)
-3. Inactive state (no stimulus):
-   - Expected: **3.3V (HIGH)**, Actual: _______ V
-   - Note: The sensor is active low but the circuit inverts the signal resulting in active high
-4. Activate sensor: Pass car or dark object in under lane 1 finish-line sensor
-   - Expected: **0V (LOW)**, Actual: _______ V
-5. Deactivate sensor: Remove optical stimulus
-   - Expected: **3.3V (HIGH)**, Actual: _______ V
-6. Repeat activation/deactivation cycle 3 times to confirm signal responsiveness
-
-**Test Lane 2 Sensor Input**:
-
-1. Place multimeter ground probe on J8 Pin 14 (GND reference)
-2. Place multimeter test probe on **J8 Pin 4** (Lane 2 sensor input signal)
-3. Inactive state (no stimulus):
-   - Expected: **3.3V (HIGH)**, Actual: _______ V
-   - Note: The sensor is active low but the circuit inverts the signal resulting in active high
-4. Activate sensor: Pass car or dark object in under lane 2 finish-line sensor
-   - Expected: **0V (LOW)**, Actual: _______ V
-5. Deactivate sensor: Remove optical stimulus
-   - Expected: **3.3V (HIGH)**, Actual: _______ V
-6. Repeat activation/deactivation cycle 3 times to confirm signal responsiveness
-
-**Pass Criteria**:
-
-- All voltage readings 0V or 3.3V (no intermediate values)
-- Signal responds quickly to stimulus (no observable delay)
-- No false triggers or chattering observed
-
----
-
-### 5.3 Display Continuity and Power Test
-
-**Objective**: Verify display driver outputs can illuminate LED segments; validate digit selection and decimal point functionality.
-**Test Steps**:
-
-#### Phase 1: Decimal Point (Ones Position)
-
-Decimal point is only active on Ones digit (per design); simplest verification of display power & drivers
-
-1. Confirm J6 pin 3 (GND) and J6 pin 4 (+5V) are connected to display power
-2. Using jumper wire, connect J4 pin 5 (Decimal Point) to GND reference (J6 pin 3)
-3. Visually inspect display: **Decimal point in Ones digit position should illuminate**
-4. Release jumper; point should extinguish
-5. Repeat jumper activation 3 times; confirm consistent illumination
-
-#### Phase 2: Tens Digit Verify
-
-MCD14543 digit demultiplexing and segment drivers are functional
-
-1. Confirm J6 pin 3 (GND) and J6 pin 4 (+5V) are connected to display power
-2. Using jumper wire, connect J4 pin 6 (Tens) to GND reference (J6 pin 3)
-3. Assuming AD0-AD3 are low, the tens digit should illuminate "0" pattern (all segments except decimal point)
-4. [Optional] Using jumper wire, connect J4 pin 2 (AD3) to J6 pin 4 (+5V), the tens digit should illuminate "1" pattern
-
-**Pass Criteria**:
-
-- Decimal point illuminates cleanly with 0V jumper, no dimming
-- Decimal point extinguishes completely when jumper removed
-- No other segments illuminate during decimal-only test
-- No visible arcing or component overheating
-
-**Notes**:
-
-- Decimal point test is simplest & catches power/grounding issues
-- Full 7-segment + multiplexing test deferred to firmware integration phase
-- If decimal fails: suspect 5V supply, GND isolation, or MCD14543 output pin damage
-
----
-
-## 6.  Teardown
-
-1. Turn OFF the external 12V power supply
-2. Remove all test equipment and jumper wires
-3. Disconnect external peripherals (optical sensors, display connectors)
-4. Visually inspect board for any damage or discoloration
-5. Document any anomalies for rework
-
----
-
-## 7. Test Results Summary
-
-| Test Section | Status | Comments | Technician | Date |
-| --- | --- | --- | --- | --- |
-| 5.1 Power Supply | ☐ Pass ☐ Fail | | | |
-| 5.2 Sensor Inputs | ☐ Pass ☐ Fail | | | |
-| 5.3 Display Continuity | ☐ Pass ☐ Fail | | | |
-
-**Overall Status**: ☐ PASS ☐ CONDITIONAL ☐ FAIL
-**Notes / Action Items**:
-
----
-
----
-
----
-
----
-
-## Appendix A: Connector Pinout Quick Reference
-
-### Board Layout
+Each face is shown as you see it when you look at the outside of the enclosure. Before the first run, compare the numbers with the numbers molded into each connector insert.
 
 ```text
-Top Edge                 +5V GND GND +12V      GND L2 L1 +12V
-                           4   3   2   1         4   3  2  1
-                 +------------------------------------------+
-                 |          J6 (Dsply Pwr)      J1 (Sensors)|
-                 |        4-pin Molex Nano     4-pin JST XH |
-                 |                                          |
-         +12V 1--| J3 (12V Pwr)                             |
-          GND 2--| 2-pin Molex Nano                         |
-                 |                                          |
-                 | J8 (Analog) 15-pin Arduino               |
-                 |   15 14 13 12 11 10 9 8 7 6 5 4 3 2 1    |
-                 |                                          |
-           Tx 1--| J2 (Comm)                                |
-           Rx 2--| 3-pin JST XH                             |
-          GND 3--|                                          |
-                 |   15 14 13 12 11 10 9 8 7 6 5 4 3 2 1    |
-          AD0 1--|  J9 (Digital) 15-pin Arduino             |--10 Time2_Thousandths
-          AD3 2--|                                          |--9  Time2_Hundredths
-          AD1 3--|                                          |--8  Time2_Tenths
-          AD2 4--| J5 (Time1)                    J4 (Time2) |--7  Time2_Ones
-      Decimal 5--| 10-pin JST XH              10-pin JST XH |--6  Time2_Tens
-         Tens 6--|                                          |--5  Decimal_Point
-   Time1_Ones 7--|                                          |--4  AD2
-       Tenths 8--|                                          |--3  AD1
-   Hundredths 9--|                                          |--2  AD3
- Thousandths 10--|                                          |--1  AD0
-                 +------------------------------------------+
-Bottom Edge
+X2 START BOARD (4-pin)     X4 SENSORS (4-pin)       X3 DISPLAY PWR (3-pin)
+mounted rotated 90 deg     key on the top         key on bottom
+CCW, key on left
+
+   [4]  [3]                   [1]  [4]                     [3]
+   [1]  [2]                   [2]  [3]                  [2]   [1]
+
+1 Tx      3 GND               1 GND     3 Lane 1        1 GND
+2 +12V    4 Rx                2 +12V    4 Lane 2        2 +5V
+                                                        3 +12V
 ```
 
-### J8 Arduino Header Connections (Analog)
+- X1 POWER is a cable gland, not a connector. Its cable goes without a break from the bench supply to X2: +12V to X2 pin 2, GND to X2 pin 3. Thus X2 pin 2 is the supply +12V test point on the enclosure.
+- **On X2, pins 2 (+12V) and 3 (GND) are next to each other. Never put a jumper on X2.**
+- X5 and X6 (display data) are not used in this test.
 
-| Pin | Purpose | Arduino Pin | Notes |
+### Internal points
+
+These are inside the enclosure. No external connector carries them.
+
+| Point | Signal |
+| --- | --- |
+| J8 pin 5 (Nano socket, analog side) | Lane 1 conditioned output (Nano A1) |
+| J8 pin 4 | Lane 2 conditioned output (Nano A0) |
+| Capacitor C6 (silkscreen label) | +3.3V rail. The board has no 3.3 V test point. |
+
+## 5. Procedure
+
+Do the steps in order. Write P or F in each Result blank. Write the reading where a value is asked for. If a step fails, stop and record the reading. Later steps assume that earlier steps passed.
+
+### Part A - Power OFF
+
+| Step | Action | Expected | Result |
 | --- | --- | --- | --- |
-| 1 | N/C | D13/SCK | Not used |
-| 2 | N/C | +3.3V | Arduino-generated 3.3V reference (not for power) |
-| 3 | N/C | AREF | Arduino analog reference input |
-| 4 | Lane 2 | A0 | Lane 2 sensor input |
-| 5 | Lane 1 | A1 | Lane 1 sensor input |
-| 6 | BCD_Lane1 | A2 | Select (enable) for lane 1 74HCD238 |
-| 7 | BCD_Lane2 | A3 | Select (enable) for lane 2 74HCD238 |
-| 8 | N/C | A4/SDA | Not used |
-| 9 | N/C | A5/SCL | Not used |
-| 10 | N/C | A6 | Not used |
-| 11 | N/C | A7 | Not used |
-| 12 | N/C | +5VDC | Arduino-generated 5V reference (not for power) |
-| 13 | N/C | ~Reset | Reset low |
-| 14 | GND | GND | Power Ground |
-| 15 | +12V | +12V | Power Input |
+| 1 | Look at the board and the wiring inside the enclosure. | Board is seated. No loose wire strands, no solder bridges. | ____ |
+| 2 | Set the bench supply to 12.0 V and the current limit to 0.5 A. Set the output OFF. Do not connect the power cable yet. | Supply shows 12.0 V, output OFF. | ____ |
+| 3 | Continuity: power cable +12V conductor (supply end) to X2 pin 2. Then the power cable GND conductor to X2 pin 3. | Beep on both. | ____ |
+| 4 | Continuity: X2 pin 2 to X4 pin 2, and X2 pin 2 to X3 pin 3. | Beep on both (+12V reaches sensors and displays). | ____ |
+| 5 | Continuity: X2 pin 3 to X4 pin 1, and X2 pin 3 to X3 pin 1. | Beep on both (GND reaches sensors and displays). | ____ |
+| 6 | Resistance: X2 pin 2 to X2 pin 3. Wait for the reading to settle. | No beep, and more than 100 ohm. A low reading is a short. Do not apply power. | ______ ohm |
 
-### J9 Arduino Header Connections (Digital)
+### Part B - Power ON
 
-| Pin | Purpose | Arduino Pin | Notes |
+| Step | Action | Expected | Result |
 | --- | --- | --- | --- |
-| 1 | N/C | D12/MISO | RFID MISO |
-| 2 | N/C | D11/MOSI | RFID MOSI |
-| 3 | N/C | D10/SS | RFID Control Select Right |
-| 4 | Decimal Point | D9 | Pass through 74CHT244 buffer |
-| 5 | AD3 | D8 | Pass through 74CHT244 buffer |
-| 6 | AD2 | D7 | Pass through 74CHT244 buffer |
-| 7 | AD1 | D6 | Pass through 74CHT244 buffer |
-| 8 | AD0 | D5 | Pass through 74CHT244 buffer |
-| 9 | BCD_MuxC | D4 | Pass through 74CHT244 buffer |
-| 10 | BCD_MuxB | D3 | Pass through 74CHT244 buffer |
-| 11 | BCD_MuxA | D2 | Pass through 74CHT244 buffer |
-| 12 | GND | GND | Power Ground |
-| 13 | N/C | ~Reset | Reset low |
-| 14 | RDX | D0/Rx | Serial receive (Start Controller) |
-| 15 | TXD | D1/Tx | Serial transmit (Start Controller) |
+| 7 | Connect the power cable to the supply (+12V conductor to +). Turn the output ON. Watch for 5 seconds. | Supply does not go into current limit, and the fan speed does not change. No smoke, smell, or hot parts. | ______ mA |
+| 8 | Look at the rail LEDs on the board, if you can see them. | D17 (+12V), D15 (+5V), and D16 (+3.3V) are all on and steady. | ____ |
+| 9 | Measure X2 pin 2. | 11.5 to 12.5 V | ______ V |
+| 10 | Measure X3 pin 2. | 4.80 to 5.20 V (+5V rail) | ______ V |
+| 11 | Measure X3 pin 3. | Same as step 9 (+12V to displays) | ______ V |
+| 12 | Find the capacitor labeled C6 on the board silkscreen. Measure each of its two pads. | One pad reads 3.20 to 3.40 V (+3.3V rail). The other pad reads 0 V. | ______ V |
+| 13 | Measure X2 pin 1 (Tx), then X2 pin 4 (Rx). | About 5 V on both. The level shifter pull-ups hold an idle UART line high. | ______ V / ______ V |
 
----
+### Part C - Sensor inputs
 
-## Appendix B: Troubleshooting Guide
+A QS18 sensor output pulls its lane line to GND. The board pulls each lane line up to +5V through 1 k ohm, and an inverter (U3) gives 3.3 V at the Nano pin when the line is pulled low. Thus an open input reads 0 V at J8, and an active sensor reads 3.3 V. The test stimulus is a jumper from a lane pin to **GND** (X4 pin 1). It draws only 5 mA.
 
-1. Sensors not triggering (both lanes stuck HIGH)
-   - Confirm +3.3V supply to logic gate (74LVC2G14)
-   - Physically inspect lens for dust/blockage
-   - Check +12V supply to sensor connector (J1 pin 1)
-   - Pattern: If stuck HIGH → sensor output or logic gate failed; inspect with continuity test
-2. One lane sensor fails, other works
-   - Verify sensor +12V and GND continuity from J1 to physical connector
-   - Check 74LVC2G14 isolation diodes for leakage (usually in parallel per input stage)
-   - Pattern: Suggests single-sensor failure or isolation component degradation
-3. Inconsistent sensor triggering (chattering, missed cars)
-   - Check QS-18 lens alignment (sensor should be square to beam path)
-   - Verify cable shielding integrity (especially on longer cable runs >3m)
-   - Slow trigger response → check Schmitt trigger capacitor values (typically 100nF across logic IC)
+**Never connect +12V (X4 pin 2) to a lane pin.** A diode on each lane line connects it to the +5V rail. +12V on a lane pin goes through that diode into the +5V rail, which can damage every 5 V part on the board. If the supply current jumps or the fan speeds up, remove the jumper at once.
+
+| Step | Action | Expected | Result |
+| --- | --- | --- | --- |
+| 14 | Measure X4 pin 2. | Same as step 9 (+12V to sensors) | ______ V |
+| 15 | Measure X4 pin 3, then X4 pin 4. | About 5 V on both (pull-up, nothing connected) | ______ V / ______ V |
+| 16a | **Check before you jumper.** Measure the two pins you will connect: X4 pin 3, then X4 pin 1. | X4 pin 3 reads about 5 V. X4 pin 1 reads 0 V. If either pin reads about 12 V, you are on the wrong pin. Stop. Do not put on the jumper. | ______ V / ______ V |
+| 16 | Measure J8 pin 5 and J8 pin 4. Then put the jumper from X4 pin 3 to X4 pin 1 and measure both again. Remove the jumper. | Before jumper: 0 V on both. With jumper: J8 pin 5 = 3.2 to 3.4 V, J8 pin 4 stays 0 V. After jumper removed: 0 V. If J8 pin 4 goes high instead, Lane 1 and Lane 2 are swapped. Record which pin went high. | pin 5: ______ V, pin 4: ______ V |
+| 17a | **Check before you jumper.** Measure X4 pin 4, then X4 pin 1. | X4 pin 4 reads about 5 V. X4 pin 1 reads 0 V. If either pin reads about 12 V, stop. Do not put on the jumper. | ______ V / ______ V |
+| 17 | Do step 16 again with the jumper from X4 pin 4 to X4 pin 1. | With jumper: J8 pin 4 = 3.2 to 3.4 V, J8 pin 5 stays 0 V. | pin 4: ______ V, pin 5: ______ V |
+| 18 | Optional. Connect the QS18 sensors to X4. Block the Lane 1 beam, then the Lane 2 beam. | J8 pin 5 (Lane 1) and then J8 pin 4 (Lane 2) read 3.3 V while the beam is blocked and 0 V while it is clear. If it is the opposite, the sensor is set to light-operate; the firmware needs dark-operate. Record the sensor model number. | ____ |
+
+### Part D - Restore
+
+| Step | Action | Expected | Result |
+| --- | --- | --- | --- |
+| 19 | Turn the supply output OFF. Remove the jumper and the sensors. | Rail LEDs go off. | ____ |
+| 20 | Add one row to `docs/test-log.md`: date, steps passed (for example "15/20 PASS, step 16 FAIL"), and every reading that was out of range. | Row added. | ____ |
