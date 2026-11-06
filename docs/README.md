@@ -20,6 +20,7 @@ and the rest -- lives at the repo root in [CONTEXT.md](../CONTEXT.md).
 | --- | --- | --- |
 | [testing.md](testing.md) | Layer map of the test strategy (L1 static analysis through L5 debug mode) | Deciding which test to run, or adding tests |
 | [bench-test-protocol.md](bench-test-protocol.md) | Cold-start bench procedure for two-board integration, with FTDI tap wiring and a symptom table | Bringing up or debugging real hardware |
+| [track-integration-test.md](track-integration-test.md) | Printable one-operator checklist for the first full-system run on the track, with temporary wiring | First track run, before permanent board modifications |
 | [race-test-codes.md](race-test-codes.md) | Printable failure-code sheet for the built-in RACE_TEST self-test | At the track; print and store with the hardware |
 | [shipping-checklist.md](shipping-checklist.md) | v1.0 verification checklist from compile gate to race-day readiness | Preparing for an event |
 | [test-log.md](test-log.md) | Append-only record of test runs and results | Checking what was last verified, and when |
