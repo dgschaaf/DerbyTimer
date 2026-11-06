@@ -38,21 +38,62 @@ comm cable from the SC's J5 before flashing or opening a USB serial monitor
 on the SC.** Two drivers on the same pins can corrupt the upload and the
 protocol. (The FC has no such restriction -- its USB is independent.)
 
-### Build and flash commands
+### Build and flash with VS Code tasks
+
+A task is a saved command in `.vscode/tasks.json`. You run it from a menu,
+so you do not need to remember the `arduino-cli` command lines. Open the
+repo root folder in VS Code first; the tasks run from there.
+
+1. Connect one board to the PC with USB. Connect only one board at a time,
+   so you cannot flash the wrong board.
+2. Select **Terminal > Run Task...** and then **List Connected Boards**.
+   Find the COM port of the board in the terminal panel. A Nano 33 BLE
+   (FC) shows its board name. A clone Nano (SC) shows `Unknown`. To
+   identify a port, disconnect the board and run the task again: its port
+   disappears.
+3. Select **Terminal > Run Task...** again and select the upload task:
+   - **Upload Start Controller (J5 unplugged)** - SC normal build.
+   - **Upload Finish Controller** - FC normal build (race day).
+   - **Upload FC Debug** - FC with `DERBY_DEBUG` (the bench workhorse).
+4. Type the COM port (for example `COM5`) in the box at the top of the
+   window and push Enter.
+5. Read the terminal panel. Success: two lines that start with
+   `Sketch uses` and `Global variables use`, and no `Error` line. The FC
+   also shows a progress bar and `Done in ... seconds`. The FC compile
+   takes 1-3 minutes; the SC compile takes a few seconds.
+
+Each upload task compiles and uploads in one step, so the board always
+gets the binary from that compile. `Ctrl+Shift+B` compiles the SC without
+an upload. Close all serial monitors on a port before you upload to it:
+only one program can use a COM port at a time.
+
+If an upload fails:
+
+- **SC: `not in sync` or `programmer is not responding`.** The Nano has
+  the old bootloader. Use the command-line form below with
+  `--fqbn arduino:avr:nano:cpu=atmega328old`.
+- **FC: no COM port, or Windows reports "Device Descriptor Request
+  Failed".** Most often the USB cable is charge-only (it has no data
+  wires). Use a cable that is known to carry data, in a USB port on the PC.
+- **FC: the port disappears or the upload stops.** Double-tap the reset
+  button. The amber LED pulses slowly: the bootloader is ready. Find the
+  port again (it can change) and run the upload again.
+
+Command-line equivalents (from the repo root; replace `COM5` with the port):
 
 ```sh
-# FC with debug output (the bench workhorse):
-arduino-cli compile --fqbn arduino:mbed_nano:nano33ble --library firmware/lib/shared --build-property "build.extra_flags=-DDERBY_DEBUG" firmware/finishController/finishController.ino
-arduino-cli upload  --fqbn arduino:mbed_nano:nano33ble -p <FC-COM-port> firmware/finishController/finishController.ino
+# FC with debug output:
+arduino-cli compile -u -p COM5 --fqbn arduino:mbed_nano:nano33ble --library firmware/lib/shared --build-property "build.extra_flags=-DDERBY_DEBUG" firmware/finishController/finishController.ino
+
+# FC normal build:
+arduino-cli compile -u -p COM5 --fqbn arduino:mbed_nano:nano33ble --library firmware/lib/shared firmware/finishController/finishController.ino
 
 # SC normal build (comm cable DISCONNECTED while uploading):
-arduino-cli compile --fqbn arduino:avr:nano --library firmware/lib/shared firmware/startController/startController.ino
-arduino-cli upload  --fqbn arduino:avr:nano -p <SC-COM-port> firmware/startController/startController.ino
+arduino-cli compile -u -p COM5 --fqbn arduino:avr:nano --library firmware/lib/shared firmware/startController/startController.ino
 ```
 
-VS Code tasks "Compile FC Debug" etc. in `.vscode/tasks.json` are
-equivalents. Any serial monitor works for the FC debug stream (VS Code,
-Arduino IDE, PuTTY, Docklight) at 115200.
+Any serial monitor works for the FC debug stream (VS Code, Arduino IDE,
+PuTTY, Docklight) at 115200.
 
 ---
 

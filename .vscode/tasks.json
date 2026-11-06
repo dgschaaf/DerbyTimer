@@ -53,6 +53,50 @@
             "problemMatcher": []
         },
         {
+            "label": "List Connected Boards",
+            "type": "shell",
+            "command": "arduino-cli board list",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Upload Start Controller (J5 unplugged)",
+            "type": "shell",
+            "command": "arduino-cli compile -u -p ${input:comPort} --fqbn arduino:avr:nano --warnings all --library firmware/lib/shared firmware/startController/startController.ino",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Upload Finish Controller",
+            "type": "shell",
+            "command": "arduino-cli compile -u -p ${input:comPort} --fqbn arduino:mbed_nano:nano33ble --warnings all --library firmware/lib/shared firmware/finishController/finishController.ino",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Upload FC Debug",
+            "type": "shell",
+            "command": "arduino-cli compile -u -p ${input:comPort} --fqbn arduino:mbed_nano:nano33ble --warnings all --library firmware/lib/shared --build-property \"build.extra_flags=-DDERBY_DEBUG\" firmware/finishController/finishController.ino",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Run L2 Native Tests",
             "type": "shell",
             "command": "${env:USERPROFILE}\\.platformio\\penv\\Scripts\\pio.exe test -e native",
@@ -66,6 +110,13 @@
                 "clear": true
             },
             "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "comPort",
+            "type": "promptString",
+            "description": "COM port of the board to flash (run the task 'List Connected Boards' to find it), e.g. COM5"
         }
     ]
 }
