@@ -1,0 +1,8 @@
+# Python environment and tool caches
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/

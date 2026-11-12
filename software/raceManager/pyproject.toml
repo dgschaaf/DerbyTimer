@@ -1,0 +1,31 @@
+# Race Manager package metadata and tool configuration.
+# Runtime dependencies stay empty until a milestone needs one (the web
+# framework is pinned with the first UI slice, bleak with the real FC link).
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "race-manager"
+dynamic = ["version"]
+description = "DerbyTimer Race Manager: event-level race day coordinator (Raspberry Pi kiosk)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.dynamic]
+version = {attr = "race_manager.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# pythonpath lets pytest import race_manager straight from a checkout,
+# without an editable install.
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
