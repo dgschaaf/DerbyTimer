@@ -58,10 +58,12 @@ bool isModePressed() {
 	// Mode uses analog input, poll infrequently to save reading time
     static unsigned long modeLastRead = 0;
     static bool modeState = false;
-    
-    if (millis() - modeLastRead >= analogPollIntervalMs) {
+    static bool modeRead  = false;     // first call must sample: setup() runs before 10 ms elapse
+
+    if (!modeRead || millis() - modeLastRead >= analogPollIntervalMs) {
         modeState = analogRead(buttonMode) < analogThreshold;
         modeLastRead = millis();
+        modeRead = true;
     }
     return modeState;
 }
