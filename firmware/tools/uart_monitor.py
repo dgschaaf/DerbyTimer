@@ -10,9 +10,9 @@ Connects to one DerbyTimer controller over serial and provides four modes:
   [4] Protocol Injector -- interactive menu, send any message on demand
 
 Usage:
-  python tools/uart_monitor.py COM3
-  python tools/uart_monitor.py COM3 --log session.txt
-  python tools/uart_monitor.py /dev/ttyUSB0 --baud 57600
+  python firmware/tools/uart_monitor.py COM3
+  python firmware/tools/uart_monitor.py COM3 --log session.txt
+  python firmware/tools/uart_monitor.py /dev/ttyUSB0 --baud 57600
 
 Dependencies:
   pip install pyserial
@@ -34,9 +34,12 @@ import serial  # pip install pyserial
 # length to _PAYLOAD_BY_NAME below and getExpectedPayloadLength() in serialComm.cpp.
 # ---------------------------------------------------------------------------
 
-_SHARED_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'firmware', 'lib', 'shared')
+# Resolve from the repo root (this file is <repo>/firmware/tools/), so the
+# script finds the headers no matter which folder it is run from.
+_REPO_ROOT = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 )
+_SHARED_DIR = os.path.join(_REPO_ROOT, 'firmware', 'lib', 'shared')
 
 def _load_protocol():
     def read(name):
