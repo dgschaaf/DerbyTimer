@@ -55,6 +55,11 @@ repo root folder in VS Code first; the tasks run from there.
    - **Upload Start Controller (J5 unplugged)** - SC normal build.
    - **Upload Finish Controller** - FC normal build (race day).
    - **Upload FC Debug** - FC with `DERBY_DEBUG` (the bench workhorse).
+   - **Upload SC Debug (J5 unplugged)** - SC with `DERBY_DEBUG`; prints
+     state entries such as `[SC] ->RACE_TEST` to USB.
+   - **Upload SC Light-Path Test (J5 unplugged)** - standalone tree and
+     button test; procedure in
+     `hardware/hwTest/startController_hw_functional_test.md`.
 4. Type the COM port (for example `COM5`) in the box at the top of the
    window and push Enter.
 5. Read the terminal panel. Success: two lines that start with
@@ -93,7 +98,8 @@ arduino-cli compile -u -p COM5 --fqbn arduino:avr:nano --library firmware/lib/sh
 ```
 
 Any serial monitor works for the FC debug stream (VS Code, Arduino IDE,
-PuTTY, Docklight) at 115200.
+PuTTY, Docklight) at 115200. The VS Code task **Serial Monitor 115200**
+opens one in a terminal panel; opening it resets an SC Nano.
 
 ---
 
