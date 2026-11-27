@@ -4,7 +4,7 @@ Bench procedure; the KiCad schematic (`hardware/finishBoard/`) is authoritative 
 
 ## 1. Purpose
 
-Find two kinds of fault before the Nano is installed: PCB design or trace errors, and wiring or solder errors in the enclosure harness. The test checks the power wiring, the three supply rails, the UART idle levels, and both sensor input circuits. Display segments are not tested here. With no Nano, the display driver inputs float, so the display check is in `finishController_hw_functional_test.md`.
+Find two kinds of fault before the Nano is installed: PCB design or trace errors, and wiring or solder errors in the enclosure harness. The test checks the power wiring, the three supply rails, the UART idle levels, and both sensor input circuits. Display segments are not tested here. With no Nano, the display driver inputs float, so the display check is in `finishController_hw_test.md`.
 
 ## 2. Configuration
 

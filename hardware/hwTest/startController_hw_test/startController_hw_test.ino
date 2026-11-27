@@ -3,7 +3,7 @@
  * Proves the SC Nano runs, the 74HC595 (U4) drives each lamp switch, the
  * U3/U1 "GO and not red" logic works, and the four buttons reach the Nano.
  * Uses no race code, no FC, and no serial link. Procedure:
- * hardware/hwTest/startController_hw_functional_test.md.
+ * startController_hw_test.md in this folder.
  *
  * USB serial: 115200 baud. Unplug the comm cable at J5 first - D0/D1 are
  * shared between USB and the link.

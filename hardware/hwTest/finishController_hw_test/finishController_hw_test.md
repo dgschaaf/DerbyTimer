@@ -59,7 +59,7 @@ This functional test validates that the firmware correctly reads sensor states, 
 ### 4.2 Firmware Loading
 
 1. Open Arduino IDE on laptop
-2. Open File → Examples → or load finishController_hw_functional_test.ino
+2. Open File → Examples → or load finishController_hw_test.ino
 3. Select Tools → Board: "Arduino Nano 33 BLE"
 4. Select Tools → Port: "COM[X]" (appropriate USB serial port)
 5. Verify baud rate is set to **9600 baud**

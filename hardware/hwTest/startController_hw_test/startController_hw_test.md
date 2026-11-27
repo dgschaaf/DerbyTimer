@@ -1,6 +1,6 @@
 # Start Controller Light-Path and Button Test
 
-Bench procedure. The sketch `startController_hw_functional_test/startController_hw_functional_test.ino` is authoritative for pins and step patterns; the PCB file is authoritative for part designators.
+Bench procedure. The sketch `startController_hw_test.ino` in this folder is authoritative for pins and step patterns; the PCB file is authoritative for part designators.
 
 ## 1. Purpose
 

@@ -59,7 +59,7 @@ repo root folder in VS Code first; the tasks run from there.
      state entries such as `[SC] ->RACE_TEST` to USB.
    - **Upload SC Light-Path Test (J5 unplugged)** - standalone tree and
      button test; procedure in
-     `hardware/hwTest/startController_hw_functional_test.md`.
+     `hardware/hwTest/startController_hw_test/startController_hw_test.md`.
 4. Type the COM port (for example `COM5`) in the box at the top of the
    window and push Enter.
 5. Read the terminal panel. Success: two lines that start with

@@ -110,7 +110,7 @@
         {
             "label": "Upload SC Light-Path Test (J5 unplugged)",
             "type": "shell",
-            "command": "arduino-cli compile -u -p ${input:comPort} --fqbn arduino:avr:nano --warnings all hardware/hwTest/startController_hw_functional_test",
+            "command": "arduino-cli compile -u -p ${input:comPort} --fqbn arduino:avr:nano --warnings all hardware/hwTest/startController_hw_test",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared",
